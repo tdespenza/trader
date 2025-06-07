@@ -17,7 +17,7 @@ bool MultiPhase = true;
 int CurrentPhase = 1;
 
 // === INPUT PARAMETERS ===
-input string TradeSymbols = "USTEC,XAUUSD,US30";
+input string TradeSymbols = "USTEC,XAUUSD,US30,EURUSD";
 input double RiskPerTradeVWAP = 0.4;
 input double RiskPerTradeBreakout = 0.3;
 input double RiskPerTradePullback = 0.3;
