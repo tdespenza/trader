@@ -54,7 +54,6 @@ input string BreakoutSymbols = "NAS100,US30";
 input string PullbackSymbols = "NAS100";
 
 input double EquityLockPercent = 9.0;
-input double DailyProfitTargetPct = 3.0;
 input int PauseAfterGainMinutes = 360;
 bool IsPausedAfterGain = false;
 datetime LastEquityGainTime = 0;
@@ -62,20 +61,7 @@ datetime LastEquityGainTime = 0;
 input string LogFileName = "PropEdgeJournal.csv";
 
 // === GLOBAL STATE ===
-datetime LastEquityGainTime = 0;
-input int PauseAfterGainMinutes = 360;
-bool IsPausedAfterGain = false;
 input int ConfidenceThreshold = 70;
-input int MaxConsecutiveLosses = 3;
-int ConsecutiveLosses = 0;
-bool LossStreakLock = false;
-input string VWAPSymbols = "NAS100,XAUUSD";
-input string BreakoutSymbols = "NAS100,US30";
-input string PullbackSymbols = "NAS100";
-double ATRThreshold = 0.0008; // Adjustable based on symbol
-input double EquityLockPercent = 9.0;
-datetime LastLossTime = 0;
-input int CooldownMinutesAfterLoss = 60;
 bool EquityLockHit = false;
 input bool EnableNewsFilter = true;
 input int NewsBufferMinutes = 15;
@@ -96,16 +82,6 @@ void LogTrade(string sym, string type, double lot, double sl, double tp, string 
 bool IsBrokerSpiking(string sym) {
     double spread = (SymbolInfoDouble(sym, SYMBOL_ASK) - SymbolInfoDouble(sym, SYMBOL_BID)) / _Point;
     return (spread > 50);
-}
-
-// === CONFIDENCE SCORE FOR ENTRY ===
-int CalculateConfidenceScore(string sym) {
-    double atr = iATR(sym, PERIOD_M15, 14, 0);
-    double spread = (SymbolInfoDouble(sym, SYMBOL_ASK) - SymbolInfoDouble(sym, SYMBOL_BID)) / _Point;
-    int score = 100;
-    if (atr < ATRThreshold) score -= 30;
-    if (spread > 30) score -= 30;
-    return score;
 }
 
 // === TIME FILTERS ===
@@ -156,21 +132,6 @@ void ManageSmartExit(string sym, ulong ticket, int type, double entryPrice, doub
     }
 }
 
-// === VPS TIME SYNC ===
-int ServerTimeOffset = 0;
-void TimeZoneAdjustment() {
-    datetime localTime = TimeLocal();
-    datetime serverTime = TimeCurrent();
-    ServerTimeOffset = (int)(serverTime - localTime) / 3600;
-    Print("Server Time Offset: ", ServerTimeOffset);
-}
-
-// === ON INIT ===
-int OnInit() {
-    TimeZoneAdjustment();
-    return INIT_SUCCEEDED;
-}
-
 // === END OF HEADER ===
 
 void LoadRedNewsTimes() {
@@ -208,9 +169,6 @@ string ExtractBetween(string source, string fromTag, string toTag) {
     int end = StringFind(source, toTag, start);
     if (end == -1) return "";
     return StringSubstr(source, start, end - start);
-}
-        FileClose(handle);
-    }
 }
 #include <stdlib.mqh>
 input string TelegramBotToken = "";
@@ -305,6 +263,9 @@ for (int i = 0; i < ArraySize(symbols); i++) {
         if (EnableVWAP) StrategyVWAP(sym);
         if (EnableBreakout) StrategyBreakout(sym);
         if (EnablePullback) StrategyPullback(sym);
+    }
+}
+        FileClose(handle);
     }
 }
 
