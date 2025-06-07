@@ -68,6 +68,7 @@ input int NYEndHour = 20;   // 3 PM EST
 input int ConfidenceThreshold = 70;
 input bool EnableNewsFilter = true;
 input int NewsBufferMinutes = 15;
+input string ImportantCurrencies = "USD,EUR,GBP,XAU";
 
 input string ImportantCurrencies = "USD,EUR,GBP,XAU";
 input bool EnableLondonSessionOnly = false;
@@ -98,8 +99,9 @@ datetime LastLossTime = 0;
 bool IsPausedAfterGain = false;
 datetime LastEquityGainTime = 0;
 bool EquityLockHit = false;
-string NewsCurrencyList[] = {"USD", "XAU", "NAS"};
-string RedNewsTimes[];
+string RedNewsTimes[100];
+int RedNewsLevels[100];
+int RedNewsCount = 0;
 bool DailyProfitHit = false;
 bool DailyLossHit = false;
 datetime LastTradeTimeVWAP = 0;
@@ -245,23 +247,23 @@ void LoadRedNewsTimes() {
     int timeout = 5000;
     int res = WebRequest("GET", url, NULL, NULL, 0, result, timeout);
     if (res != 200) {
-        Print("Failed to fetch ForexFactory RSS: ", res);
+        Print("Failed to fetch news: ", res);
         return;
     }
     string xml = CharArrayToString(result);
     int pos = 0;
-    int i = 0;
-    while ((pos = StringFind(xml, "<event>", pos)) != -1 && i < 100) {
-        string segment = StringSubstr(xml, pos, 300);
-        string impact = ExtractBetween(segment, "<impact>", "</impact>");
+    RedNewsCount = 0;
+    while ((pos = StringFind(xml, "<event>", pos)) != -1 && RedNewsCount < 100) {
+        string segment = StringSubstr(xml, pos, 500);
         string currency = ExtractBetween(segment, "<currency>", "</currency>");
+        string impact = ExtractBetween(segment, "<impact>", "</impact>");
         string datetime = ExtractBetween(segment, "<date>", "</date>") + " " + ExtractBetween(segment, "<time>", "</time>");
 
-        for (int c = 0; c < ArraySize(NewsCurrencyList); c++) {
-            if (StringFind(currency, NewsCurrencyList[c]) != -1 && StringFind(impact, "High") != -1) {
-                RedNewsTimes[i++] = datetime;
-                break;
-            }
+        if (StringFind(ImportantCurrencies, currency) != -1) {
+            int level = (StringFind(impact, "High") != -1) ? 3 : (StringFind(impact, "Medium") != -1 ? 2 : 1);
+            RedNewsTimes[RedNewsCount] = datetime;
+            RedNewsLevels[RedNewsCount] = level;
+            RedNewsCount++;
         }
         pos += 10;
     }
@@ -447,12 +449,15 @@ double CalculateLotSize(string sym, double riskPct, double slPips) {
 }
 
 // === NEWS FILTER ===
-bool IsNearRedNews() {
+bool IsNearRedNews(int minImpact = 2) {
     datetime now = TimeCurrent();
-    for (int i = 0; i < ArraySize(RedNewsTimes); i++) {
-        datetime newsTime = StringToTime(RedNewsTimes[i]);
-        if (newsTime > 0) {
-            if (MathAbs((int)(now - newsTime)) < NewsBufferMinutes * 60) return true;
+    for (int i = 0; i < RedNewsCount; i++) {
+        if (RedNewsLevels[i] >= minImpact) {
+            datetime newsTime = StringToTime(RedNewsTimes[i]);
+            if (newsTime > 0) {
+                if (MathAbs((int)(now - newsTime)) < NewsBufferMinutes * 60)
+                    return true;
+            }
         }
     }
     return false;
