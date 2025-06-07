@@ -9,11 +9,7 @@
 #property description "Multi-strategy prop firm bot: VWAP Reversal, London Breakout, and Trend Pullback with full risk control, broker behavior detection, equity scaling, logging, exit intelligence, and full prop challenge automation."
 
 #include <Trade/Trade.mqh>
-#include <stdlib.mqh>
-#include <Wininet.dll>
-#import "kernel32.dll"
-int GetTickCount();
-#import
+#include <StdLib.mqh>
 
 // === ENUM & PROP FIRM MODES ===
 enum PropFirmType { FTMO, MFF, E8 };
@@ -101,6 +97,8 @@ string EquityLogFile = "EquitySnapshots.csv";
 input double MaxTotalDailyRiskPct = 1.5;
 input double MaxRiskPerTradePct = 0.5;
 input int MaxAllowedSpreadPoints = 60;
+input bool EnableSlippageLog = true;
+string SlippageLogFile = "SlippageLog.csv";
 
 // === GLOBAL VARIABLES ===
 CTrade trade;
@@ -129,6 +127,11 @@ double MinEquity;
 bool TradeLock = false;
 double DailyTradeRiskTotal = 0;
 int ServerTimeOffset = 0;
+int TotalTradesExecuted = 0;
+
+int GetHour(datetime t){ MqlDateTime s; TimeToStruct(t, s); return s.hour; }
+int GetDay(datetime t){ MqlDateTime s; TimeToStruct(t, s); return s.day; }
+int GetDayOfWeek(datetime t){ MqlDateTime s; TimeToStruct(t, s); return s.day_of_week; }
 
 // === DYNAMIC RISK TRACKING ===
 int winStreak = 0;
@@ -162,7 +165,7 @@ void LogTrade(string sym, string type, double lot, double sl, double tp, string 
                   IntegerToString(GetTickCount()));
         FileClose(handle);
     }
-    if (TimeDay(LastTradeDay) != TimeDay(TimeCurrent())) TradeDayCount++;
+    if (GetDay(LastTradeDay) != GetDay(TimeCurrent())) TradeDayCount++;
     LastTradeDay = TimeCurrent();
     TradeMadeToday = true;
 }
@@ -176,8 +179,8 @@ bool IsBrokerSpiking(string sym) {
 // === TIME FILTERS ===
 bool IsTimeRestricted() {
     datetime now = TimeCurrent();
-    if (TimeDayOfWeek(now) == 1 && TimeHour(now) < 4) return true;
-    if (TimeDayOfWeek(now) == 5 && TimeHour(now) > 16) return true;
+    if (GetDayOfWeek(now) == 1 && GetHour(now) < 4) return true;
+    if (GetDayOfWeek(now) == 5 && GetHour(now) > 16) return true;
     return false;
 }
 
@@ -249,7 +252,7 @@ bool IsEquityCurveFailing() {
 
 // === FUNCTION: CHECK IF IN NY SESSION ===
 bool IsInNYSession() {
-    int hour = TimeHour(TimeCurrent());
+    int hour = GetHour(TimeCurrent());
     return (!EnableNYSessionOnly || (hour >= NYStartHour && hour <= NYEndHour));
 }
 
@@ -306,18 +309,18 @@ void LogEquitySnapshot() {
 }
 
 // === END OF HEADER ===
-ApplyFirmSettings();
 
 void LoadRedNewsTimes() {
     string url = "https://nfs.faireconomy.media/ff_calendar_thisweek.xml";
-    char result[];
+    uchar data[];
+    string headers;
     int timeout = 5000;
-    int res = WebRequest("GET", url, NULL, NULL, 0, result, timeout);
+    int res = WebRequest("GET", url, "", "", timeout, data, headers);
     if (res != 200) {
         Print("Failed to fetch news: ", res);
         return;
     }
-    string xml = CharArrayToString(result);
+    string xml = CharArrayToString(data);
     int pos = 0;
     RedNewsCount = 0;
     while ((pos = StringFind(xml, "<event>", pos)) != -1 && RedNewsCount < 100) {
@@ -346,6 +349,7 @@ string ExtractBetween(string source, string fromTag, string toTag) {
 }
 
 int OnInit() {
+    ApplyFirmSettings();
     TimeZoneAdjustment();
     LoadRedNewsTimes();
     ResetDailyCounters();
@@ -357,13 +361,13 @@ int OnInit() {
 
 void OnTick() {
     datetime now = TimeCurrent();
-    if (TimeDayOfWeek(now) == 1 && TimeHour(now) < 4) return;
-    if (TimeDayOfWeek(now) == 5 && TimeHour(now) > 16) return;
+    if (GetDayOfWeek(now) == 1 && GetHour(now) < 4) return;
+    if (GetDayOfWeek(now) == 5 && GetHour(now) > 16) return;
     if (IsPausedAfterGain && (now - LastEquityGainTime) < PauseAfterGainMinutes * 60) return;
     if (LossStreakLock) return;
     if (EquityLockHit) return;
     if (EnableNewsFilter && IsNearRedNews()) return;
-    if (TimeDay(TimeCurrent()) != TimeDay(LastTradeTimeVWAP)) ResetDailyCounters();
+    if (GetDay(TimeCurrent()) != GetDay(LastTradeTimeVWAP)) ResetDailyCounters();
     if (TradeLock) return;
     CheckTradeDuration();
     LogEquitySnapshot();
@@ -426,7 +430,7 @@ bool IsVolatilitySufficient(string sym, ENUM_TIMEFRAMES tf = PERIOD_M15) {
 // === STRATEGY 1: VWAP + LIQUIDITY ===
 void StrategyVWAP(string sym) {
     if (!IsVolatilitySufficient(sym)) return;
-    if (TradesTodayVWAP >= 2 || TimeHour(TimeCurrent()) < 4 || TimeHour(TimeCurrent()) > 11) return;
+    if (TradesTodayVWAP >= 2 || GetHour(TimeCurrent()) < 4 || GetHour(TimeCurrent()) > 11) return;
     if (!IsSpreadAcceptable(sym)) return;
     MqlRates rates[];
     if (!CopyRates(sym, PERIOD_M5, 0, VWAPPeriod + 10, rates)) return;
@@ -458,7 +462,7 @@ void StrategyVWAP(string sym) {
 // === STRATEGY 2: LONDON BREAKOUT ===
 void StrategyBreakout(string sym) {
     if (!IsVolatilitySufficient(sym)) return;
-    if (TradesTodayBreakout >= 2 || TimeHour(TimeCurrent()) < 2 || TimeHour(TimeCurrent()) > 5) return;
+    if (TradesTodayBreakout >= 2 || GetHour(TimeCurrent()) < 2 || GetHour(TimeCurrent()) > 5) return;
     if (!IsSpreadAcceptable(sym)) return;
     MqlRates rates[];
     if (!CopyRates(sym, PERIOD_M15, 0, BreakoutRangeBars + 1, rates)) return;
@@ -481,7 +485,7 @@ void StrategyBreakout(string sym) {
 // === STRATEGY 3: TREND PULLBACK ===
 void StrategyPullback(string sym) {
     if (!IsVolatilitySufficient(sym)) return;
-    int hour = TimeHour(TimeCurrent());
+    int hour = GetHour(TimeCurrent());
     if (TradesTodayPullback >= 2 || (hour < 7 || (hour > 13 && hour < 14) || hour > 16)) return;
     if (!IsSpreadAcceptable(sym)) return;
     double emaFast = iMA(sym, PERIOD_M15, 10, 0, MODE_EMA, PRICE_CLOSE, 0);
@@ -561,7 +565,7 @@ bool CanTradeRiskToday(double newRisk) {
         return false;
     }
     datetime now = TimeCurrent();
-    if (TimeDay(LastTradeDay) != TimeDay(now)) {
+    if (GetDay(LastTradeDay) != GetDay(now)) {
         DailyTradeRiskTotal = 0;
         LastTradeDay = now;
     }
@@ -594,10 +598,10 @@ void UpdateTrailingStop(string sym, ulong ticket, double entryPrice, int type, d
 void SendTelegram(string message) {
     if (!EnableTelegram || StringLen(TelegramBotToken) == 0 || StringLen(TelegramChatID) == 0) return;
     string url = "https://api.telegram.org/bot" + TelegramBotToken + "/sendMessage?chat_id=" + TelegramChatID + "&text=" + message;
-    char post[];
-    char result[];
+    uchar data[];
+    string headers;
     int timeout = 5000;
-    int res = WebRequest("GET", url, NULL, 10, post, result, timeout);
+    int res = WebRequest("GET", url, "", "", timeout, data, headers);
     if (res != 200) Print("Telegram error: ", res);
 }
 
@@ -618,7 +622,7 @@ bool IsEquitySlopeFailing() {
 }
 
 bool InSessionWindow() {
-    int h = TimeHour(TimeCurrent());
+    int h = GetHour(TimeCurrent());
     if (EnableLondonSessionOnly && (h < LondonStartHour || h > LondonEndHour)) return false;
     if (EnableNYSessionOnly && (h < NYStartHour || h > NYEndHour)) return false;
     return true;
@@ -639,7 +643,7 @@ void AdjustRisk() {
 
 void ForceMinimumDailyTrade() {
     datetime now = TimeCurrent();
-    if (EnableAutoTradeDay && TimeHour(now) >= ForceTradeHour) {
+    if (EnableAutoTradeDay && GetHour(now) >= ForceTradeHour) {
         static bool traded = false;
         if (!traded) {
             trade.Buy(0.01, TradeSymbols);
@@ -657,6 +661,17 @@ void LogDetailedTrade(string symbol, string type, double lot, double sl, double 
                   AccountInfoDouble(ACCOUNT_EQUITY),
                   SymbolInfoDouble(symbol, SYMBOL_SPREAD),
                   GetTickCount(), result);
+        FileClose(handle);
+    }
+}
+
+void LogSlippage(string symbol, double requested, double executed) {
+    if(!EnableSlippageLog) return;
+    double slip = MathAbs(executed - requested) / _Point;
+    int handle = FileOpen(SlippageLogFile, FILE_CSV|FILE_READ|FILE_WRITE, ',');
+    if(handle!=INVALID_HANDLE) {
+        FileSeek(handle, 0, SEEK_END);
+        FileWrite(handle, TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS), symbol, requested, executed, slip);
         FileClose(handle);
     }
 }
@@ -747,6 +762,9 @@ void OpenTrade(string sym, int type, double riskPct, int magic) {
         if (ConsecutiveLosses >= MaxConsecutiveLosses) LossStreakLock = true;
         return;
     }
+
+    LogSlippage(sym, price, trade.ResultPrice());
+    TotalTradesExecuted++;
 
     string action = (type == ORDER_TYPE_BUY) ? "BUY" : "SELL";
     SendTelegram(action + " " + sym + " | Lot: " + DoubleToString(lot, 2) +
