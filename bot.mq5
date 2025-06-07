@@ -3,7 +3,7 @@
 //|   Unified VWAP, Breakout & Pullback Strategy for Prop Firms      |
 //|   Built for MDTC, FTMO, MyFF & similar one-phase challenges      |
 //+------------------------------------------------------------------+
-#property copyright "OpenAI"
+#property copyright "Tyshawn Despenza"
 #property version   "3.5"
 #property strict
 #property description "Multi-strategy prop firm bot: VWAP Reversal, London Breakout, and Trend Pullback with full risk control, broker behavior detection, equity scaling, logging, exit intelligence, and full prop challenge automation."
