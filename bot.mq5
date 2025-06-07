@@ -443,7 +443,11 @@ double GetATR(string sym, ENUM_TIMEFRAMES tf, int period) {
     int h = iATR(sym, tf, period);
     if (h == INVALID_HANDLE) return 0.0;
     double buf[];
-    if (CopyBuffer(h, 0, 0, 1, buf) <= 0) return 0.0;
+    if (CopyBuffer(h, 0, 0, 1, buf) <= 0) {
+        IndicatorRelease(h);
+        return 0.0;
+    }
+    IndicatorRelease(h);
     return buf[0];
 }
 
