@@ -367,8 +367,8 @@ double CalculateLotSize(string sym, double riskPct, double slPips) {
 bool IsNearRedNews() {
     datetime now = TimeCurrent();
     for (int i = 0; i < ArraySize(RedNewsTimes); i++) {
-        datetime newsTime;
-        if (StringToTime(RedNewsTimes[i], newsTime)) {
+        datetime newsTime = StringToTime(RedNewsTimes[i]);
+        if (newsTime > 0) {
             if (MathAbs((int)(now - newsTime)) < NewsBufferMinutes * 60) return true;
         }
     }
