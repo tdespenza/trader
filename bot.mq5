@@ -9,7 +9,6 @@
 #property description "Multi-strategy prop firm bot: VWAP Reversal, London Breakout, and Trend Pullback with full risk control, broker behavior detection, equity scaling, logging, exit intelligence, and full prop challenge automation."
 
 #include <Trade/Trade.mqh>
-#include <StdLib.mqh>
 
 // === ENUM & PROP FIRM MODES ===
 enum PropFirmType { FTMO, MFF, E8 };
@@ -22,11 +21,18 @@ input string TradeSymbols = "NAS100,XAUUSD,US30";
 input double RiskPerTradeVWAP = 0.4;
 input double RiskPerTradeBreakout = 0.3;
 input double RiskPerTradePullback = 0.3;
+
+double CurrRiskPerTradeVWAP;
+double CurrRiskPerTradeBreakout;
+double CurrRiskPerTradePullback;
 input bool EnableVWAP = true;
 input bool EnableBreakout = true;
 input bool EnablePullback = true;
 input double DailyLossLimitPct = 3.0;
 input double MaxDrawdownPct = 10.0;
+
+double CurrDailyLossLimitPct;
+double CurrMaxDrawdownPct;
 input int VWAPPeriod = 20;
 input int BreakoutRangeBars = 12;
 input double SL_Pips = 100;
@@ -258,24 +264,30 @@ bool IsInNYSession() {
 
 // === PROP FIRM CONFIGURATION ===
 void ApplyFirmSettings() {
+    CurrDailyLossLimitPct = DailyLossLimitPct;
+    CurrMaxDrawdownPct = MaxDrawdownPct;
+    CurrRiskPerTradeVWAP = RiskPerTradeVWAP;
+    CurrRiskPerTradeBreakout = RiskPerTradeBreakout;
+    CurrRiskPerTradePullback = RiskPerTradePullback;
+
     switch(FirmMode) {
         case FTMO:
-            DailyLossLimitPct = 5.0;
-            MaxDrawdownPct = 10.0;
+            CurrDailyLossLimitPct = 5.0;
+            CurrMaxDrawdownPct = 10.0;
             break;
         case MFF:
-            DailyLossLimitPct = 4.0;
-            MaxDrawdownPct = 8.0;
+            CurrDailyLossLimitPct = 4.0;
+            CurrMaxDrawdownPct = 8.0;
             break;
         case E8:
-            DailyLossLimitPct = 5.0;
-            MaxDrawdownPct = 8.0;
+            CurrDailyLossLimitPct = 5.0;
+            CurrMaxDrawdownPct = 8.0;
             break;
     }
     if (MultiPhase && CurrentPhase == 2) {
-        RiskPerTradeVWAP *= 0.75;
-        RiskPerTradeBreakout *= 0.75;
-        RiskPerTradePullback *= 0.75;
+        CurrRiskPerTradeVWAP *= 0.75;
+        CurrRiskPerTradeBreakout *= 0.75;
+        CurrRiskPerTradePullback *= 0.75;
     }
 }
 
@@ -284,7 +296,7 @@ void CheckTradeDuration() {
     for (int i = PositionsTotal() - 1; i >= 0; i--) {
         ulong ticket = PositionGetTicket(i);
         if (PositionSelectByTicket(ticket)) {
-            datetime opentime = PositionGetInteger(POSITION_TIME);
+            datetime opentime = (datetime)PositionGetInteger(POSITION_TIME);
             if ((TimeCurrent() - opentime) > MaxTradeDurationMinutes * 60) {
                 Print("[Alert] Trade open too long: ", PositionGetString(POSITION_SYMBOL));
             }
@@ -313,25 +325,26 @@ void LogEquitySnapshot() {
 void LoadRedNewsTimes() {
     string url = "https://nfs.faireconomy.media/ff_calendar_thisweek.xml";
     uchar data[];
+    uchar result[];
     string headers;
     int timeout = 5000;
-    int res = WebRequest("GET", url, "", "", timeout, data, headers);
+    int res = WebRequest("GET", url, headers, timeout, data, result, headers);
     if (res != 200) {
         Print("Failed to fetch news: ", res);
         return;
     }
-    string xml = CharArrayToString(data);
+    string xml = CharArrayToString(result);
     int pos = 0;
     RedNewsCount = 0;
     while ((pos = StringFind(xml, "<event>", pos)) != -1 && RedNewsCount < 100) {
         string segment = StringSubstr(xml, pos, 500);
         string currency = ExtractBetween(segment, "<currency>", "</currency>");
         string impact = ExtractBetween(segment, "<impact>", "</impact>");
-        string datetime = ExtractBetween(segment, "<date>", "</date>") + " " + ExtractBetween(segment, "<time>", "</time>");
+        string datetimeStr = ExtractBetween(segment, "<date>", "</date>") + " " + ExtractBetween(segment, "<time>", "</time>");
 
         if (StringFind(ImportantCurrencies, currency) != -1) {
             int level = (StringFind(impact, "High") != -1) ? 3 : (StringFind(impact, "Medium") != -1 ? 2 : 1);
-            RedNewsTimes[RedNewsCount] = datetime;
+            RedNewsTimes[RedNewsCount] = datetimeStr;
             RedNewsLevels[RedNewsCount] = level;
             RedNewsCount++;
         }
@@ -383,7 +396,7 @@ void OnTick() {
     double dailyLoss = 100.0 * (DayStartEquity - equity) / DayStartEquity;
     double totalDD = 100.0 * (MaxEquity - equity) / MaxEquity;
 
-    if (dailyLoss > DailyLossLimitPct || totalDD > MaxDrawdownPct || DailyProfitHit || DailyLossHit) {
+    if (dailyLoss > CurrDailyLossLimitPct || totalDD > CurrMaxDrawdownPct || DailyProfitHit || DailyLossHit) {
         Print("🚫 Risk guard triggered. No trading today.");
         TradeLock = true;
         return;
@@ -407,7 +420,7 @@ if (gainPct >= DailyProfitTargetPct) {
     Print("✅ Daily profit target hit. Disabling trading.");
     return;
 }
-if (dailyLoss >= DailyLossLimitPct) {
+if (dailyLoss >= CurrDailyLossLimitPct) {
     DailyLossHit = true;
     Print("🚫 Daily loss limit hit. Disabling trading.");
     return;
@@ -422,8 +435,16 @@ for (int i = 0; i < ArraySize(symbols); i++) {
 
 
 // === VOLATILITY CHECK ===
+double GetATR(string sym, ENUM_TIMEFRAMES tf, int period) {
+    int h = iATR(sym, tf, period);
+    if (h == INVALID_HANDLE) return 0.0;
+    double buf[];
+    if (CopyBuffer(h, 0, 0, 1, buf) <= 0) return 0.0;
+    return buf[0];
+}
+
 bool IsVolatilitySufficient(string sym, ENUM_TIMEFRAMES tf = PERIOD_M15) {
-    double atr = iATR(sym, tf, 14, 0);
+    double atr = GetATR(sym, tf, 14);
     return atr >= ATRThreshold;
 }
 
@@ -454,9 +475,9 @@ void StrategyVWAP(string sym) {
     double close = rates[0].close;
 
     if (rates[0].high > recentHigh + 50 * _Point && close < vwap && IsBearishEngulfing(rates[1], rates[0]))
-        OpenTrade(sym, ORDER_TYPE_SELL, RiskPerTradeVWAP, MagicVWAP);
+        OpenTrade(sym, ORDER_TYPE_SELL, CurrRiskPerTradeVWAP, MagicVWAP);
     else if (rates[0].low < recentLow - 50 * _Point && close > vwap && IsBullishEngulfing(rates[1], rates[0]))
-        OpenTrade(sym, ORDER_TYPE_BUY, RiskPerTradeVWAP, MagicVWAP);
+        OpenTrade(sym, ORDER_TYPE_BUY, CurrRiskPerTradeVWAP, MagicVWAP);
 }
 
 // === STRATEGY 2: LONDON BREAKOUT ===
@@ -478,8 +499,10 @@ void StrategyBreakout(string sym) {
     double bid = SymbolInfoDouble(sym, SYMBOL_BID);
     double ask = SymbolInfoDouble(sym, SYMBOL_ASK);
 
-    if (bid > high && IsBullishEngulfing(rates[1], rates[0])) OpenTrade(sym, ORDER_TYPE_BUY, RiskPerTradeBreakout, MagicBreakout);
-    if (ask < low && IsBearishEngulfing(rates[1], rates[0])) OpenTrade(sym, ORDER_TYPE_SELL, RiskPerTradeBreakout, MagicBreakout);
+    if (bid > high && IsBullishEngulfing(rates[1], rates[0]))
+        OpenTrade(sym, ORDER_TYPE_BUY, CurrRiskPerTradeBreakout, MagicBreakout);
+    if (ask < low && IsBearishEngulfing(rates[1], rates[0]))
+        OpenTrade(sym, ORDER_TYPE_SELL, CurrRiskPerTradeBreakout, MagicBreakout);
 }
 
 // === STRATEGY 3: TREND PULLBACK ===
@@ -497,13 +520,15 @@ void StrategyPullback(string sym) {
         if (!CopyRates(sym, PERIOD_M15, 0, 3, rates)) return;
         ArraySetAsSeries(rates, true);
         if (IsBullishEngulfing(rates[1], rates[0]))
-        OpenTrade(sym, ORDER_TYPE_BUY, RiskPerTradePullback, MagicPullback);
+            OpenTrade(sym, ORDER_TYPE_BUY, CurrRiskPerTradePullback, MagicPullback);
+    }
     else if (emaFast < emaSlow && price > emaFast + 20 * _Point) {
         MqlRates rates[];
         if (!CopyRates(sym, PERIOD_M15, 0, 3, rates)) return;
         ArraySetAsSeries(rates, true);
         if (IsBearishEngulfing(rates[1], rates[0]))
-        OpenTrade(sym, ORDER_TYPE_SELL, RiskPerTradePullback, MagicPullback);
+            OpenTrade(sym, ORDER_TYPE_SELL, CurrRiskPerTradePullback, MagicPullback);
+    }
 }
 
 // === LEVERAGE-AWARE LOT SIZE ===
@@ -543,7 +568,7 @@ bool IsNearRedNews(int minImpact = 2) {
 
 // === DAILY COUNTER RESET ===
 int CalculateConfidenceScore(string sym) {
-    double atr = iATR(sym, PERIOD_M15, 14, 0);
+    double atr = GetATR(sym, PERIOD_M15, 14);
     double spread = (SymbolInfoDouble(sym, SYMBOL_ASK) - SymbolInfoDouble(sym, SYMBOL_BID)) / _Point;
     int score = 100;
     if (atr < ATRThreshold) score -= 30;
@@ -631,13 +656,13 @@ bool InSessionWindow() {
 void AdjustRisk() {
     if (!EnableDynamicRisk) return;
     if (winStreak >= 2) {
-        RiskPerTradeVWAP *= WinStreakMultiplier;
-        RiskPerTradeBreakout *= WinStreakMultiplier;
-        RiskPerTradePullback *= WinStreakMultiplier;
+        CurrRiskPerTradeVWAP *= WinStreakMultiplier;
+        CurrRiskPerTradeBreakout *= WinStreakMultiplier;
+        CurrRiskPerTradePullback *= WinStreakMultiplier;
     } else if (lossStreak >= 2) {
-        RiskPerTradeVWAP *= LossStreakReducer;
-        RiskPerTradeBreakout *= LossStreakReducer;
-        RiskPerTradePullback *= LossStreakReducer;
+        CurrRiskPerTradeVWAP *= LossStreakReducer;
+        CurrRiskPerTradeBreakout *= LossStreakReducer;
+        CurrRiskPerTradePullback *= LossStreakReducer;
     }
 }
 
