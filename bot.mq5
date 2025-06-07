@@ -170,15 +170,9 @@ string ExtractBetween(string source, string fromTag, string toTag) {
     if (end == -1) return "";
     return StringSubstr(source, start, end - start);
 }
-#include <stdlib.mqh>
 input string TelegramBotToken = "";
 input string TelegramChatID = "";
 input bool EnableTelegram = false;
-#include <stdlib.mqh>
-#include <Wininet.dll>
-#import "kernel32.dll"
-int GetTickCount();
-#import
 
 input double DailyProfitTargetPct = 2.5;
 input double BreakEvenTriggerR = 1.0;
@@ -260,14 +254,9 @@ for (int i = 0; i < ArraySize(symbols); i++) {
     if (EnableVWAP && StringFind(VWAPSymbols, sym) != -1) StrategyVWAP(sym);
     if (EnableBreakout && StringFind(BreakoutSymbols, sym) != -1) StrategyBreakout(sym);
     if (EnablePullback && StringFind(PullbackSymbols, sym) != -1) StrategyPullback(sym);
-        if (EnableVWAP) StrategyVWAP(sym);
-        if (EnableBreakout) StrategyBreakout(sym);
-        if (EnablePullback) StrategyPullback(sym);
     }
 }
-        FileClose(handle);
-    }
-}
+
 
 // === VOLATILITY CHECK ===
 bool IsVolatilitySufficient(string sym, ENUM_TIMEFRAMES tf = PERIOD_M15) {
@@ -461,10 +450,6 @@ void OpenTrade(string sym, int type, double riskPct, int magic) {
         Print("❌ Trade confidence too low. Skipping.");
         return;
     }
-    if ((TimeCurrent() - LastLossTime) < CooldownMinutesAfterLoss * 60) {
-        Print("⏸ Cooldown active after loss. Skipping trade.");
-        return;
-    }
     datetime now = TimeCurrent();
     if (magic == MagicVWAP) { LastTradeTimeVWAP = now; TradesTodayVWAP++; }
     else if (magic == MagicBreakout) { LastTradeTimeBreakout = now; TradesTodayBreakout++; }
@@ -480,44 +465,25 @@ void OpenTrade(string sym, int type, double riskPct, int magic) {
 
     trade.SetExpertMagicNumber(magic);
     trade.SetDeviationInPoints(10);
-    if (type == ORDER_TYPE_BUY) {
+
     int retries = 3;
-    while (retries-- > 0 && !trade.Buy(lot, sym, price, sl, tp)) {
-        Sleep(1000);
+    bool success = false;
+    while (retries-- > 0 && !success) {
+        if (type == ORDER_TYPE_BUY)
+            success = trade.Buy(lot, sym, price, sl, tp);
+        else
+            success = trade.Sell(lot, sym, price, sl, tp);
+        if (!success) Sleep(1000);
     }
-    if (retries <= 0) {
+
+    if (!success) {
         LastLossTime = TimeCurrent();
         ConsecutiveLosses++;
         if (ConsecutiveLosses >= MaxConsecutiveLosses) LossStreakLock = true;
         return;
     }
-        LastLossTime = TimeCurrent();
-        ConsecutiveLosses++;
-        if (ConsecutiveLosses >= MaxConsecutiveLosses) LossStreakLock = true;
-        return;
-            LastLossTime = TimeCurrent();
-            return;
-        }
-        SendTelegram("BUY " + sym + " | Lot: " + DoubleToString(lot, 2) + " SL: " + DoubleToString(sl, 2) + " TP: " + DoubleToString(tp, 2));
-    }
-    else {
-    int retries = 3;
-    while (retries-- > 0 && !trade.Sell(lot, sym, price, sl, tp)) {
-        Sleep(1000);
-    }
-    if (retries <= 0) {
-        LastLossTime = TimeCurrent();
-        ConsecutiveLosses++;
-        if (ConsecutiveLosses >= MaxConsecutiveLosses) LossStreakLock = true;
-        return;
-    }
-        LastLossTime = TimeCurrent();
-        ConsecutiveLosses++;
-        if (ConsecutiveLosses >= MaxConsecutiveLosses) LossStreakLock = true;
-        return;
-            LastLossTime = TimeCurrent();
-            return;
-        }
-        SendTelegram("SELL " + sym + " | Lot: " + DoubleToString(lot, 2) + " SL: " + DoubleToString(sl, 2) + " TP: " + DoubleToString(tp, 2));
-    }
+
+    string action = (type == ORDER_TYPE_BUY) ? "BUY" : "SELL";
+    SendTelegram(action + " " + sym + " | Lot: " + DoubleToString(lot, 2) +
+                 " SL: " + DoubleToString(sl, 2) + " TP: " + DoubleToString(tp, 2));
 }
