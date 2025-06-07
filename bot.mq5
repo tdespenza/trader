@@ -120,6 +120,14 @@ int RedNewsCount = 0;
 bool mockNews = (bool)MQLInfoInteger(MQL_TESTER);
 datetime LastSnapshotTime = 0;
 string NewsCurrencyList[] = {"USD", "XAU", "NAS"};
+// Fallback news data for testing environments without WebRequest access
+string DefaultNewsTimesConst[] = {
+    "2025.01.01 00:00",
+    "2025.01.02 12:00",
+    "2025.01.03 14:00"
+};
+int DefaultNewsLevelsConst[] = {3, 2, 3};
+const int DefaultNewsCount = 3;
 bool DailyProfitHit = false;
 bool DailyLossHit = false;
 datetime LastTradeTimeVWAP = 0;
@@ -327,6 +335,25 @@ void LogEquitySnapshot() {
 
 // === END OF HEADER ===
 
+// Load built-in news data when fetching from the web fails. This allows
+// the strategy tester to operate without external requests.
+void LoadDefaultNews() {
+    RedNewsCount = DefaultNewsCount;
+    int handle = INVALID_HANDLE;
+    if(MQLInfoInteger(MQL_TESTER))
+        handle = FileOpen("news.csv", FILE_WRITE|FILE_CSV);
+    for(int i=0; i<DefaultNewsCount && i<100; i++) {
+        RedNewsTimes[i]  = DefaultNewsTimesConst[i];
+        RedNewsLevels[i] = DefaultNewsLevelsConst[i];
+        if(handle != INVALID_HANDLE)
+            FileWrite(handle, DefaultNewsTimesConst[i],
+                      (DefaultNewsLevelsConst[i]==3?"High":
+                       (DefaultNewsLevelsConst[i]==2?"Medium":"Low")));
+    }
+    if(handle != INVALID_HANDLE)
+        FileClose(handle);
+}
+
 void LoadRedNewsTimes() {
     RedNewsCount = 0;
     bool fromFile = false;
@@ -362,7 +389,8 @@ void LoadRedNewsTimes() {
     int timeout = 5000;
     int res = WebRequest("GET", url, "", "", timeout, data, 0, result, result_headers);
     if (res != 200) {
-        Print("Failed to fetch news: ", res);
+        Print("Failed to fetch news: ", res, ". Using default data.");
+        LoadDefaultNews();
         return;
     }
     string xml = CharArrayToString(result);
