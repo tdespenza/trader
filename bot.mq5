@@ -558,7 +558,7 @@ double CalculateLotSize(string sym, double riskPct, double slPips) {
     double contractSize = SymbolInfoDouble(sym, SYMBOL_TRADE_CONTRACT_SIZE);
     double leverage = (double)AccountInfoInteger(ACCOUNT_LEVERAGE);
     double marginPerLot = contractSize / leverage;
-    double freeMargin = AccountInfoDouble(ACCOUNT_FREEMARGIN);
+    double freeMargin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
     double maxAllowedLots = freeMargin / marginPerLot;
 
     return NormalizeDouble(MathMin(lots, maxAllowedLots), 2);
