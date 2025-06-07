@@ -9,14 +9,13 @@
 #property description "Multi-strategy prop firm bot: VWAP Reversal, London Breakout, and Trend Pullback with full risk control, broker behavior detection, equity scaling, logging, exit intelligence, and full prop challenge automation."
 
 #include <Trade/Trade.mqh>
-CTrade trade;
 #include <stdlib.mqh>
 #include <Wininet.dll>
 #import "kernel32.dll"
 int GetTickCount();
 #import
 
-// === INPUT CONFIGURATION ===
+// === INPUT PARAMETERS ===
 input string TradeSymbols = "NAS100,XAUUSD,US30";
 input double RiskPerTradeVWAP = 0.4;
 input double RiskPerTradeBreakout = 0.3;
@@ -43,9 +42,6 @@ input bool EnableSymbolReallocation = true;
 input int PauseDurationHours = 24;
 
 input int MaxConsecutiveLosses = 3;
-int ConsecutiveLosses = 0;
-bool LossStreakLock = false;
-datetime LastLossTime = 0;
 input int CooldownMinutesAfterLoss = 60;
 
 input bool EnablePropChallengeMode = true;
@@ -55,18 +51,45 @@ input string PullbackSymbols = "NAS100";
 
 input double EquityLockPercent = 9.0;
 input int PauseAfterGainMinutes = 360;
-bool IsPausedAfterGain = false;
-datetime LastEquityGainTime = 0;
 
 input string LogFileName = "PropEdgeJournal.csv";
 
-// === GLOBAL STATE ===
 input int ConfidenceThreshold = 70;
-bool EquityLockHit = false;
 input bool EnableNewsFilter = true;
 input int NewsBufferMinutes = 15;
+
+input string TelegramBotToken = "";
+input string TelegramChatID = "";
+input bool EnableTelegram = false;
+
+input double DailyProfitTargetPct = 2.5;
+input double BreakEvenTriggerR = 1.0;
+input double TrailStartR = 1.2;
+input double TrailStopBufferPips = 20;
+
+// === GLOBAL VARIABLES ===
+CTrade trade;
+int ConsecutiveLosses = 0;
+bool LossStreakLock = false;
+datetime LastLossTime = 0;
+bool IsPausedAfterGain = false;
+datetime LastEquityGainTime = 0;
+bool EquityLockHit = false;
 string NewsCurrencyList[] = {"USD", "XAU", "NAS"};
 string RedNewsTimes[];
+bool DailyProfitHit = false;
+bool DailyLossHit = false;
+datetime LastTradeTimeVWAP = 0;
+datetime LastTradeTimeBreakout = 0;
+datetime LastTradeTimePullback = 0;
+int TradesTodayVWAP = 0;
+int TradesTodayBreakout = 0;
+int TradesTodayPullback = 0;
+double DayStartEquity;
+double MaxEquity;
+double MinEquity;
+bool TradeLock = false;
+int ServerTimeOffset = 0;
 
 // === FUNCTION: LOG TRADE TO FILE ===
 void LogTrade(string sym, string type, double lot, double sl, double tp, string result) {
@@ -170,28 +193,6 @@ string ExtractBetween(string source, string fromTag, string toTag) {
     if (end == -1) return "";
     return StringSubstr(source, start, end - start);
 }
-input string TelegramBotToken = "";
-input string TelegramChatID = "";
-input bool EnableTelegram = false;
-
-input double DailyProfitTargetPct = 2.5;
-input double BreakEvenTriggerR = 1.0;
-input double TrailStartR = 1.2;
-input double TrailStopBufferPips = 20;
-bool DailyProfitHit = false;
-bool DailyLossHit = false;
-
-datetime LastTradeTimeVWAP = 0;
-datetime LastTradeTimeBreakout = 0;
-datetime LastTradeTimePullback = 0;
-int TradesTodayVWAP = 0;
-int TradesTodayBreakout = 0;
-int TradesTodayPullback = 0;
-
-double DayStartEquity;
-double MaxEquity;
-double MinEquity;
-bool TradeLock = false;
 
 int OnInit() {
     TimeZoneAdjustment();
@@ -434,7 +435,6 @@ bool IsBearishEngulfing(MqlRates r1, MqlRates r2) {
 }
 
 // === TRADE EXECUTION ===
-int ServerTimeOffset = 0;
 void TimeZoneAdjustment() {
     datetime localTime = TimeLocal();
     datetime serverTime = TimeCurrent();
