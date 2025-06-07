@@ -11,13 +11,13 @@
 #include <Trade/Trade.mqh>
 
 // === ENUM & PROP FIRM MODES ===
-enum PropFirmType { FTMO, MFF, E8 };
-input PropFirmType FirmMode = FTMO;
+enum PropFirmType { FTMO, MFF, E8, MDTC };
+input PropFirmType FirmMode = MDTC;
 bool MultiPhase = true;
 int CurrentPhase = 1;
 
 // === INPUT PARAMETERS ===
-input string TradeSymbols = "NAS100,XAUUSD,US30";
+input string TradeSymbols = "USTEC,XAUUSD,US30";
 input double RiskPerTradeVWAP = 0.4;
 input double RiskPerTradeBreakout = 0.3;
 input double RiskPerTradePullback = 0.3;
@@ -282,6 +282,10 @@ void ApplyFirmSettings() {
         case E8:
             CurrDailyLossLimitPct = 5.0;
             CurrMaxDrawdownPct = 8.0;
+            break;
+        case MDTC:
+            CurrDailyLossLimitPct = 3.0;
+            CurrMaxDrawdownPct = 10.0;
             break;
     }
     if (MultiPhase && CurrentPhase == 2) {
