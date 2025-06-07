@@ -75,13 +75,6 @@ input int ConfidenceThreshold = 70;
 input bool EnableNewsFilter = true;
 input int NewsBufferMinutes = 15;
 input string ImportantCurrencies = "USD,EUR,GBP,XAU";
-
-input string ImportantCurrencies = "USD,EUR,GBP,XAU";
-input bool EnableLondonSessionOnly = false;
-input int LondonStartHour = 7;
-input int LondonEndHour = 16;
-
-input string ImportantCurrencies = "USD,EUR,GBP,XAU";
 input bool EnableLondonSessionOnly = false;
 input int LondonStartHour = 7;
 input int LondonEndHour = 16;
@@ -122,7 +115,6 @@ int RedNewsLevels[100];
 int RedNewsCount = 0;
 datetime LastSnapshotTime = 0;
 string NewsCurrencyList[] = {"USD", "XAU", "NAS"};
-string RedNewsTimes[];
 bool DailyProfitHit = false;
 bool DailyLossHit = false;
 datetime LastTradeTimeVWAP = 0;
