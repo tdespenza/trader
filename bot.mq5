@@ -390,7 +390,6 @@ void LoadRedNewsTimes() {
     if(saveHandle != INVALID_HANDLE)
         FileClose(saveHandle);
 }
-}
 
 string ExtractBetween(string source, string fromTag, string toTag) {
     int start = StringFind(source, fromTag);
