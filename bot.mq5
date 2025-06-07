@@ -4,7 +4,7 @@
 //|   Built for MDTC, FTMO, MyFF & similar one-phase challenges      |
 //+------------------------------------------------------------------+
 #property copyright "OpenAI"
-#property version   "3.1"
+#property version   "3.2"
 #property strict
 #property description "Multi-strategy prop firm bot: VWAP Reversal, London Breakout, and Trend Pullback with full risk control, broker behavior detection, equity scaling, logging, exit intelligence, and full prop challenge automation."
 
@@ -61,13 +61,18 @@ input bool EnableDynamicWinLossAdjustment = true;
 input bool EnableEquityCurveProtection = true;
 input double MaxEquityDropPercent = 5.0;
 input int EquityDropWindowHours = 48;
-input bool EnableNYSessionOnly = true;
+input bool EnableNYSessionOnly = false;
 input int NYStartHour = 13; // 8 AM EST
 input int NYEndHour = 20;   // 3 PM EST
 
 input int ConfidenceThreshold = 70;
 input bool EnableNewsFilter = true;
 input int NewsBufferMinutes = 15;
+
+input string ImportantCurrencies = "USD,EUR,GBP,XAU";
+input bool EnableLondonSessionOnly = false;
+input int LondonStartHour = 7;
+input int LondonEndHour = 16;
 
 input string TelegramBotToken = "";
 input string TelegramChatID = "";
@@ -77,6 +82,13 @@ input double DailyProfitTargetPct = 3.0;
 input double BreakEvenTriggerR = 1.0;
 input double TrailStartR = 1.2;
 input double TrailStopBufferPips = 20;
+
+input bool EnableDynamicRisk = true;
+input double WinStreakMultiplier = 1.5;
+input double LossStreakReducer = 0.5;
+
+input bool EnableAutoTradeDay = true;
+input int ForceTradeHour = 22;
 
 // === GLOBAL VARIABLES ===
 CTrade trade;
@@ -101,6 +113,17 @@ double MaxEquity;
 double MinEquity;
 bool TradeLock = false;
 int ServerTimeOffset = 0;
+
+// === DYNAMIC RISK TRACKING ===
+int winStreak = 0;
+int lossStreak = 0;
+
+// === EQUITY CURVE TRACKING ===
+double equityCurve[100];
+datetime equityTimestamps[100];
+int equityIdx = 0;
+input int EquitySlopeHours = 6;
+input double MaxEquitySlopeDropPct = 3.0;
 
 // === TRACK TRADE DAYS ===
 datetime LastTradeDay = 0;
@@ -477,6 +500,66 @@ void SendTelegram(string message) {
     int timeout = 5000;
     int res = WebRequest("GET", url, NULL, 10, post, result, timeout);
     if (res != 200) Print("Telegram error: ", res);
+}
+
+bool IsEquitySlopeFailing() {
+    datetime now = TimeCurrent();
+    double currEquity = AccountInfoDouble(ACCOUNT_EQUITY);
+    for (int i = 0; i < equityIdx; i++) {
+        if ((now - equityTimestamps[i]) < EquitySlopeHours * 3600) {
+            double drop = 100.0 * (equityCurve[i] - currEquity) / equityCurve[i];
+            if (drop >= MaxEquitySlopeDropPct)
+                return true;
+        }
+    }
+    equityCurve[equityIdx] = currEquity;
+    equityTimestamps[equityIdx] = now;
+    equityIdx = (equityIdx + 1) % 100;
+    return false;
+}
+
+bool InSessionWindow() {
+    int h = TimeHour(TimeCurrent());
+    if (EnableLondonSessionOnly && (h < LondonStartHour || h > LondonEndHour)) return false;
+    if (EnableNYSessionOnly && (h < NYStartHour || h > NYEndHour)) return false;
+    return true;
+}
+
+void AdjustRisk() {
+    if (!EnableDynamicRisk) return;
+    if (winStreak >= 2) {
+        RiskPerTradeVWAP *= WinStreakMultiplier;
+        RiskPerTradeBreakout *= WinStreakMultiplier;
+        RiskPerTradePullback *= WinStreakMultiplier;
+    } else if (lossStreak >= 2) {
+        RiskPerTradeVWAP *= LossStreakReducer;
+        RiskPerTradeBreakout *= LossStreakReducer;
+        RiskPerTradePullback *= LossStreakReducer;
+    }
+}
+
+void ForceMinimumDailyTrade() {
+    datetime now = TimeCurrent();
+    if (EnableAutoTradeDay && TimeHour(now) >= ForceTradeHour) {
+        static bool traded = false;
+        if (!traded) {
+            trade.Buy(0.01, TradeSymbols);
+            traded = true;
+        }
+    }
+}
+
+void LogDetailedTrade(string symbol, string type, double lot, double sl, double tp, double entryPrice, double exitPrice, string result) {
+    int handle = FileOpen(LogFileName, FILE_CSV|FILE_READ|FILE_WRITE, ',');
+    if (handle != INVALID_HANDLE) {
+        FileSeek(handle, 0, SEEK_END);
+        FileWrite(handle, TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES),
+                  symbol, type, lot, sl, tp, entryPrice, exitPrice,
+                  AccountInfoDouble(ACCOUNT_EQUITY),
+                  SymbolInfoDouble(symbol, SYMBOL_SPREAD),
+                  GetTickCount(), result);
+        FileClose(handle);
+    }
 }
 
 // === SPREAD CHECK ===
