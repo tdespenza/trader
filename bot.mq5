@@ -328,25 +328,33 @@ void LogEquitySnapshot() {
 // === END OF HEADER ===
 
 void LoadRedNewsTimes() {
-if(MQLInfoInteger(MQL_TESTER)) {
-    int handle = FileOpen("news.csv", FILE_READ|FILE_CSV);
     RedNewsCount = 0;
-    if(handle == INVALID_HANDLE) {
-        Print("news.csv not found for tester");
-        return;
-    }
-    while(!FileIsEnding(handle) && RedNewsCount < 100) {
-        string datetimeStr = FileReadString(handle);
-        string impact = FileReadString(handle);
-        int level = (StringFind(impact, "High") != -1) ? 3 : (StringFind(impact, "Medium") != -1 ? 2 : 1);
-        if(StringLen(datetimeStr) > 0) {
-            RedNewsTimes[RedNewsCount] = datetimeStr;
-            RedNewsLevels[RedNewsCount] = level;
-            RedNewsCount++;
+    bool fromFile = false;
+    int handle = INVALID_HANDLE;
+    if(MQLInfoInteger(MQL_TESTER)) {
+        handle = FileOpen("news.csv", FILE_READ|FILE_CSV);
+        if(handle != INVALID_HANDLE) {
+            fromFile = true;
+        } else {
+            Print("news.csv not found for tester, fetching live data");
         }
     }
-    FileClose(handle);
-} else {
+
+    if(fromFile) {
+        while(!FileIsEnding(handle) && RedNewsCount < 100) {
+            string datetimeStr = FileReadString(handle);
+            string impact = FileReadString(handle);
+            int level = (StringFind(impact, "High") != -1) ? 3 : (StringFind(impact, "Medium") != -1 ? 2 : 1);
+            if(StringLen(datetimeStr) > 0) {
+                RedNewsTimes[RedNewsCount] = datetimeStr;
+                RedNewsLevels[RedNewsCount] = level;
+                RedNewsCount++;
+            }
+        }
+        FileClose(handle);
+        return;
+    }
+
     string url = "https://nfs.faireconomy.media/ff_calendar_thisweek.xml";
     char data[];
     char result[];
@@ -360,6 +368,9 @@ if(MQLInfoInteger(MQL_TESTER)) {
     string xml = CharArrayToString(result);
     int pos = 0;
     RedNewsCount = 0;
+    int saveHandle = INVALID_HANDLE;
+    if(MQLInfoInteger(MQL_TESTER))
+        saveHandle = FileOpen("news.csv", FILE_WRITE|FILE_CSV);
     while ((pos = StringFind(xml, "<event>", pos)) != -1 && RedNewsCount < 100) {
         string segment = StringSubstr(xml, pos, 500);
         string currency = ExtractBetween(segment, "<currency>", "</currency>");
@@ -370,10 +381,14 @@ if(MQLInfoInteger(MQL_TESTER)) {
             int level = (StringFind(impact, "High") != -1) ? 3 : (StringFind(impact, "Medium") != -1 ? 2 : 1);
             RedNewsTimes[RedNewsCount] = datetimeStr;
             RedNewsLevels[RedNewsCount] = level;
+            if(saveHandle != INVALID_HANDLE)
+                FileWrite(saveHandle, datetimeStr, impact);
             RedNewsCount++;
         }
         pos += 10;
     }
+    if(saveHandle != INVALID_HANDLE)
+        FileClose(saveHandle);
 }
 }
 
