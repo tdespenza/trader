@@ -4,7 +4,7 @@
 //|   Built for MDTC, FTMO, MyFF & similar one-phase challenges      |
 //+------------------------------------------------------------------+
 #property copyright "OpenAI"
-#property version   "3.0"
+#property version   "3.1"
 #property strict
 #property description "Multi-strategy prop firm bot: VWAP Reversal, London Breakout, and Trend Pullback with full risk control, broker behavior detection, equity scaling, logging, exit intelligence, and full prop challenge automation."
 
@@ -54,6 +54,17 @@ input int PauseAfterGainMinutes = 360;
 
 input string LogFileName = "PropEdgeJournal.csv";
 
+// === NEW INPUTS ===
+input bool EnableMinTradeDays = true;
+input int RequiredMinDays = 10;
+input bool EnableDynamicWinLossAdjustment = true;
+input bool EnableEquityCurveProtection = true;
+input double MaxEquityDropPercent = 5.0;
+input int EquityDropWindowHours = 48;
+input bool EnableNYSessionOnly = true;
+input int NYStartHour = 13; // 8 AM EST
+input int NYEndHour = 20;   // 3 PM EST
+
 input int ConfidenceThreshold = 70;
 input bool EnableNewsFilter = true;
 input int NewsBufferMinutes = 15;
@@ -62,7 +73,7 @@ input string TelegramBotToken = "";
 input string TelegramChatID = "";
 input bool EnableTelegram = false;
 
-input double DailyProfitTargetPct = 2.5;
+input double DailyProfitTargetPct = 3.0;
 input double BreakEvenTriggerR = 1.0;
 input double TrailStartR = 1.2;
 input double TrailStopBufferPips = 20;
@@ -91,14 +102,30 @@ double MinEquity;
 bool TradeLock = false;
 int ServerTimeOffset = 0;
 
+// === TRACK TRADE DAYS ===
+datetime LastTradeDay = 0;
+int TradeDayCount = 0;
+bool TradeMadeToday = false;
+
+// === TRACK EQUITY HISTORY FOR CURVE PROTECTION ===
+double EquityHistory[100];
+datetime EquityTimestamps[100];
+int EquityIndex = 0;
+
 // === FUNCTION: LOG TRADE TO FILE ===
 void LogTrade(string sym, string type, double lot, double sl, double tp, string result) {
     int handle = FileOpen(LogFileName, FILE_CSV|FILE_READ|FILE_WRITE, ',');
     if (handle != INVALID_HANDLE) {
         FileSeek(handle, 0, SEEK_END);
-        FileWrite(handle, TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES), sym, type, lot, sl, tp, result, DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2));
+        FileWrite(handle, TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES), sym, type, lot, sl, tp, result,
+                  DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2),
+                  DoubleToString(SymbolInfoDouble(sym, SYMBOL_ASK) - SymbolInfoDouble(sym, SYMBOL_BID), 2),
+                  IntegerToString(GetTickCount()));
         FileClose(handle);
     }
+    if (TimeDay(LastTradeDay) != TimeDay(TimeCurrent())) TradeDayCount++;
+    LastTradeDay = TimeCurrent();
+    TradeMadeToday = true;
 }
 
 // === FUNCTION: BROKER BEHAVIOR CHECK ===
@@ -153,6 +180,38 @@ void ManageSmartExit(string sym, ulong ticket, int type, double entryPrice, doub
         double newSL = (type == ORDER_TYPE_BUY) ? price - 10 * _Point : price + 10 * _Point;
         trade.PositionModify(sym, newSL, tp);
     }
+}
+
+// === FUNCTION: CHECK MINIMUM TRADE DAY COMPLIANCE ===
+void CheckMinTradeDayRequirement() {
+    if (EnableMinTradeDays && !TradeMadeToday) {
+        // force a micro trade if no trade made today
+        trade.Buy(0.01, TradeSymbols);
+    }
+    TradeMadeToday = false;
+}
+
+// === FUNCTION: CHECK EQUITY CURVE ===
+bool IsEquityCurveFailing() {
+    if (!EnableEquityCurveProtection) return false;
+    datetime now = TimeCurrent();
+    double currentEquity = AccountInfoDouble(ACCOUNT_EQUITY);
+    for (int i = 0; i < EquityIndex; i++) {
+        if (now - EquityTimestamps[i] <= EquityDropWindowHours * 3600) {
+            double drop = 100.0 * (EquityHistory[i] - currentEquity) / EquityHistory[i];
+            if (drop >= MaxEquityDropPercent) return true;
+        }
+    }
+    EquityHistory[EquityIndex] = currentEquity;
+    EquityTimestamps[EquityIndex] = now;
+    EquityIndex = (EquityIndex + 1) % 100;
+    return false;
+}
+
+// === FUNCTION: CHECK IF IN NY SESSION ===
+bool IsInNYSession() {
+    int hour = TimeHour(TimeCurrent());
+    return (!EnableNYSessionOnly || (hour >= NYStartHour && hour <= NYEndHour));
 }
 
 // === END OF HEADER ===
