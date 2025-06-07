@@ -4,7 +4,7 @@
 //|   Built for MDTC, FTMO, MyFF & similar one-phase challenges      |
 //+------------------------------------------------------------------+
 #property copyright "OpenAI"
-#property version   "3.1"
+#property version   "3.4"
 #property strict
 #property description "Multi-strategy prop firm bot: VWAP Reversal, London Breakout, and Trend Pullback with full risk control, broker behavior detection, equity scaling, logging, exit intelligence, and full prop challenge automation."
 
@@ -14,6 +14,12 @@
 #import "kernel32.dll"
 int GetTickCount();
 #import
+
+// === ENUM & PROP FIRM MODES ===
+enum PropFirmType { FTMO, MFF, E8 };
+input PropFirmType FirmMode = FTMO;
+bool MultiPhase = true;
+int CurrentPhase = 1;
 
 // === INPUT PARAMETERS ===
 input string TradeSymbols = "NAS100,XAUUSD,US30";
@@ -61,13 +67,18 @@ input bool EnableDynamicWinLossAdjustment = true;
 input bool EnableEquityCurveProtection = true;
 input double MaxEquityDropPercent = 5.0;
 input int EquityDropWindowHours = 48;
-input bool EnableNYSessionOnly = true;
+input bool EnableNYSessionOnly = false;
 input int NYStartHour = 13; // 8 AM EST
 input int NYEndHour = 20;   // 3 PM EST
 
 input int ConfidenceThreshold = 70;
 input bool EnableNewsFilter = true;
 input int NewsBufferMinutes = 15;
+
+input string ImportantCurrencies = "USD,EUR,GBP,XAU";
+input bool EnableLondonSessionOnly = false;
+input int LondonStartHour = 7;
+input int LondonEndHour = 16;
 
 input string TelegramBotToken = "";
 input string TelegramChatID = "";
@@ -78,6 +89,19 @@ input double BreakEvenTriggerR = 1.0;
 input double TrailStartR = 1.2;
 input double TrailStopBufferPips = 20;
 
+input bool EnableDynamicRisk = true;
+input double WinStreakMultiplier = 1.5;
+input double LossStreakReducer = 0.5;
+
+input bool EnableAutoTradeDay = true;
+input int ForceTradeHour = 22;
+
+input int MaxTradeDurationMinutes = 120;
+input int SnapshotIntervalMinutes = 120;
+string EquityLogFile = "EquitySnapshots.csv";
+input double MaxTotalDailyRiskPct = 1.5;
+input int MaxAllowedSpreadPoints = 60;
+
 // === GLOBAL VARIABLES ===
 CTrade trade;
 int ConsecutiveLosses = 0;
@@ -86,6 +110,7 @@ datetime LastLossTime = 0;
 bool IsPausedAfterGain = false;
 datetime LastEquityGainTime = 0;
 bool EquityLockHit = false;
+datetime LastSnapshotTime = 0;
 string NewsCurrencyList[] = {"USD", "XAU", "NAS"};
 string RedNewsTimes[];
 bool DailyProfitHit = false;
@@ -100,7 +125,19 @@ double DayStartEquity;
 double MaxEquity;
 double MinEquity;
 bool TradeLock = false;
+double DailyTradeRiskTotal = 0;
 int ServerTimeOffset = 0;
+
+// === DYNAMIC RISK TRACKING ===
+int winStreak = 0;
+int lossStreak = 0;
+
+// === EQUITY CURVE TRACKING ===
+double equityCurve[100];
+datetime equityTimestamps[100];
+int equityIdx = 0;
+input int EquitySlopeHours = 6;
+input double MaxEquitySlopeDropPct = 3.0;
 
 // === TRACK TRADE DAYS ===
 datetime LastTradeDay = 0;
@@ -214,7 +251,60 @@ bool IsInNYSession() {
     return (!EnableNYSessionOnly || (hour >= NYStartHour && hour <= NYEndHour));
 }
 
+// === PROP FIRM CONFIGURATION ===
+void ApplyFirmSettings() {
+    switch(FirmMode) {
+        case FTMO:
+            DailyLossLimitPct = 5.0;
+            MaxDrawdownPct = 10.0;
+            break;
+        case MFF:
+            DailyLossLimitPct = 4.0;
+            MaxDrawdownPct = 8.0;
+            break;
+        case E8:
+            DailyLossLimitPct = 5.0;
+            MaxDrawdownPct = 8.0;
+            break;
+    }
+    if (MultiPhase && CurrentPhase == 2) {
+        RiskPerTradeVWAP *= 0.75;
+        RiskPerTradeBreakout *= 0.75;
+        RiskPerTradePullback *= 0.75;
+    }
+}
+
+// === TRADE DURATION MONITOR ===
+void CheckTradeDuration() {
+    for (int i = PositionsTotal() - 1; i >= 0; i--) {
+        ulong ticket = PositionGetTicket(i);
+        if (PositionSelectByTicket(ticket)) {
+            datetime opentime = PositionGetInteger(POSITION_TIME);
+            if ((TimeCurrent() - opentime) > MaxTradeDurationMinutes * 60) {
+                Print("[Alert] Trade open too long: ", PositionGetString(POSITION_SYMBOL));
+            }
+        }
+    }
+}
+
+// === EQUITY SNAPSHOT LOGGING ===
+void LogEquitySnapshot() {
+    datetime now = TimeCurrent();
+    if ((now - LastSnapshotTime) >= SnapshotIntervalMinutes * 60) {
+        int handle = FileOpen(EquityLogFile, FILE_CSV|FILE_READ|FILE_WRITE, ',');
+        if (handle != INVALID_HANDLE) {
+            FileSeek(handle, 0, SEEK_END);
+            FileWrite(handle, TimeToString(now, TIME_DATE|TIME_MINUTES),
+                      DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2),
+                      DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2));
+            FileClose(handle);
+        }
+        LastSnapshotTime = now;
+    }
+}
+
 // === END OF HEADER ===
+ApplyFirmSettings();
 
 void LoadRedNewsTimes() {
     string url = "https://nfs.faireconomy.media/ff_calendar_thisweek.xml";
@@ -273,6 +363,12 @@ void OnTick() {
     if (EnableNewsFilter && IsNearRedNews()) return;
     if (TimeDay(TimeCurrent()) != TimeDay(LastTradeTimeVWAP)) ResetDailyCounters();
     if (TradeLock) return;
+    CheckTradeDuration();
+    LogEquitySnapshot();
+    // CheckServerOffset();
+    // if (IsMajorEventToday()) { Print("[Block] Trading paused due to macroeconomic event"); return; }
+    // if (!IsSpreadAcceptable(Symbol())) return;
+    // if (!CanTradeRiskToday(calculatedTradeRisk)) return;
     double equity = AccountInfoDouble(ACCOUNT_EQUITY);
     if (equity > MaxEquity) MaxEquity = equity;
     if (equity < MinEquity) MinEquity = equity;
@@ -328,7 +424,7 @@ bool IsVolatilitySufficient(string sym, ENUM_TIMEFRAMES tf = PERIOD_M15) {
 void StrategyVWAP(string sym) {
     if (!IsVolatilitySufficient(sym)) return;
     if (TradesTodayVWAP >= 2 || TimeHour(TimeCurrent()) < 4 || TimeHour(TimeCurrent()) > 11) return;
-    if (!IsSpreadAcceptable(sym, 30)) return;
+    if (!IsSpreadAcceptable(sym)) return;
     MqlRates rates[];
     if (!CopyRates(sym, PERIOD_M5, 0, VWAPPeriod + 10, rates)) return;
     ArraySetAsSeries(rates, true);
@@ -360,7 +456,7 @@ void StrategyVWAP(string sym) {
 void StrategyBreakout(string sym) {
     if (!IsVolatilitySufficient(sym)) return;
     if (TradesTodayBreakout >= 2 || TimeHour(TimeCurrent()) < 2 || TimeHour(TimeCurrent()) > 5) return;
-    if (!IsSpreadAcceptable(sym, 30)) return;
+    if (!IsSpreadAcceptable(sym)) return;
     MqlRates rates[];
     if (!CopyRates(sym, PERIOD_M15, 0, BreakoutRangeBars + 1, rates)) return;
     ArraySetAsSeries(rates, true);
@@ -384,7 +480,7 @@ void StrategyPullback(string sym) {
     if (!IsVolatilitySufficient(sym)) return;
     int hour = TimeHour(TimeCurrent());
     if (TradesTodayPullback >= 2 || (hour < 7 || (hour > 13 && hour < 14) || hour > 16)) return;
-    if (!IsSpreadAcceptable(sym, 30)) return;
+    if (!IsSpreadAcceptable(sym)) return;
     double emaFast = iMA(sym, PERIOD_M15, 10, 0, MODE_EMA, PRICE_CLOSE, 0);
     double emaSlow = iMA(sym, PERIOD_M15, 21, 0, MODE_EMA, PRICE_CLOSE, 0);
     double price = iClose(sym, PERIOD_M15, 0);
@@ -452,6 +548,22 @@ void ResetDailyCounters() {
     TradesTodayPullback = 0;
 }
 
+// === PROP RISK SETTINGS ===
+bool CanTradeRiskToday(double newRisk) {
+    datetime now = TimeCurrent();
+    if (TimeDay(LastTradeDay) != TimeDay(now)) {
+        DailyTradeRiskTotal = 0;
+        LastTradeDay = now;
+    }
+    if ((DailyTradeRiskTotal + newRisk) <= MaxTotalDailyRiskPct) {
+        DailyTradeRiskTotal += newRisk;
+        return true;
+    } else {
+        Print("[Block] Risk cap hit for today: ", DailyTradeRiskTotal, "%");
+        return false;
+    }
+}
+
 // === TRAILING STOP + BREAKEVEN ===
 void UpdateTrailingStop(string sym, ulong ticket, double entryPrice, int type, double slPips, double tpPips) {
     double currentPrice = (type == ORDER_TYPE_BUY) ? SymbolInfoDouble(sym, SYMBOL_BID) : SymbolInfoDouble(sym, SYMBOL_ASK);
@@ -479,10 +591,94 @@ void SendTelegram(string message) {
     if (res != 200) Print("Telegram error: ", res);
 }
 
-// === SPREAD CHECK ===
-bool IsSpreadAcceptable(string sym, double maxSpreadPips) {
-    double spread = (SymbolInfoDouble(sym, SYMBOL_ASK) - SymbolInfoDouble(sym, SYMBOL_BID)) / _Point;
-    return spread <= maxSpreadPips;
+bool IsEquitySlopeFailing() {
+    datetime now = TimeCurrent();
+    double currEquity = AccountInfoDouble(ACCOUNT_EQUITY);
+    for (int i = 0; i < equityIdx; i++) {
+        if ((now - equityTimestamps[i]) < EquitySlopeHours * 3600) {
+            double drop = 100.0 * (equityCurve[i] - currEquity) / equityCurve[i];
+            if (drop >= MaxEquitySlopeDropPct)
+                return true;
+        }
+    }
+    equityCurve[equityIdx] = currEquity;
+    equityTimestamps[equityIdx] = now;
+    equityIdx = (equityIdx + 1) % 100;
+    return false;
+}
+
+bool InSessionWindow() {
+    int h = TimeHour(TimeCurrent());
+    if (EnableLondonSessionOnly && (h < LondonStartHour || h > LondonEndHour)) return false;
+    if (EnableNYSessionOnly && (h < NYStartHour || h > NYEndHour)) return false;
+    return true;
+}
+
+void AdjustRisk() {
+    if (!EnableDynamicRisk) return;
+    if (winStreak >= 2) {
+        RiskPerTradeVWAP *= WinStreakMultiplier;
+        RiskPerTradeBreakout *= WinStreakMultiplier;
+        RiskPerTradePullback *= WinStreakMultiplier;
+    } else if (lossStreak >= 2) {
+        RiskPerTradeVWAP *= LossStreakReducer;
+        RiskPerTradeBreakout *= LossStreakReducer;
+        RiskPerTradePullback *= LossStreakReducer;
+    }
+}
+
+void ForceMinimumDailyTrade() {
+    datetime now = TimeCurrent();
+    if (EnableAutoTradeDay && TimeHour(now) >= ForceTradeHour) {
+        static bool traded = false;
+        if (!traded) {
+            trade.Buy(0.01, TradeSymbols);
+            traded = true;
+        }
+    }
+}
+
+void LogDetailedTrade(string symbol, string type, double lot, double sl, double tp, double entryPrice, double exitPrice, string result) {
+    int handle = FileOpen(LogFileName, FILE_CSV|FILE_READ|FILE_WRITE, ',');
+    if (handle != INVALID_HANDLE) {
+        FileSeek(handle, 0, SEEK_END);
+        FileWrite(handle, TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES),
+                  symbol, type, lot, sl, tp, entryPrice, exitPrice,
+                  AccountInfoDouble(ACCOUNT_EQUITY),
+                  SymbolInfoDouble(symbol, SYMBOL_SPREAD),
+                  GetTickCount(), result);
+        FileClose(handle);
+    }
+}
+
+// === SPREAD MONITORING ===
+bool IsSpreadAcceptable(string sym) {
+    double spread = SymbolInfoInteger(sym, SYMBOL_SPREAD);
+    if (spread > MaxAllowedSpreadPoints) {
+        Print("[Block] Spread too high on ", sym, ": ", spread);
+        return false;
+    }
+    return true;
+}
+
+// === MARKET CONDITIONS FILTER ===
+bool IsMajorEventToday() {
+    string highImpactEvents[] = {"NFP", "FOMC", "CPI"};
+    for (int i = 0; i < ArraySize(RedNewsTimes); i++) {
+        for (int j = 0; j < ArraySize(highImpactEvents); j++) {
+            if (StringFind(RedNewsTimes[i], highImpactEvents[j]) != -1)
+                return true;
+        }
+    }
+    return false;
+}
+
+// === SERVER TIME OFFSET CHECK ===
+void CheckServerOffset() {
+    datetime now = TimeLocal();
+    datetime broker = TimeCurrent();
+    int offset = (int)((broker - now) / 3600);
+    Print("[Info] Broker vs VPS time offset: ", offset, " hours");
 }
 
 // === CANDLE PATTERN FILTER ===
