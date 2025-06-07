@@ -4,7 +4,7 @@
 //|   Built for MDTC, FTMO, MyFF & similar one-phase challenges      |
 //+------------------------------------------------------------------+
 #property copyright "OpenAI"
-#property version   "3.4"
+#property version   "3.5"
 #property strict
 #property description "Multi-strategy prop firm bot: VWAP Reversal, London Breakout, and Trend Pullback with full risk control, broker behavior detection, equity scaling, logging, exit intelligence, and full prop challenge automation."
 
@@ -106,6 +106,7 @@ input int MaxTradeDurationMinutes = 120;
 input int SnapshotIntervalMinutes = 120;
 string EquityLogFile = "EquitySnapshots.csv";
 input double MaxTotalDailyRiskPct = 1.5;
+input double MaxRiskPerTradePct = 0.5;
 input int MaxAllowedSpreadPoints = 60;
 
 // === GLOBAL VARIABLES ===
@@ -374,6 +375,7 @@ void OnTick() {
     if (TradeLock) return;
     CheckTradeDuration();
     LogEquitySnapshot();
+    // === TO CALL IN MAIN LOOP ===
     // CheckServerOffset();
     // if (IsMajorEventToday()) { Print("[Block] Trading paused due to macroeconomic event"); return; }
     // if (!IsSpreadAcceptable(Symbol())) return;
@@ -562,6 +564,10 @@ void ResetDailyCounters() {
 
 // === PROP RISK SETTINGS ===
 bool CanTradeRiskToday(double newRisk) {
+    if (newRisk > MaxRiskPerTradePct) {
+        Print("[Block] Trade risk exceeds maximum allowed per trade: ", newRisk, "%");
+        return false;
+    }
     datetime now = TimeCurrent();
     if (TimeDay(LastTradeDay) != TimeDay(now)) {
         DailyTradeRiskTotal = 0;
@@ -664,10 +670,10 @@ void LogDetailedTrade(string symbol, string type, double lot, double sl, double 
 }
 
 // === SPREAD MONITORING ===
-bool IsSpreadAcceptable(string sym) {
-    double spread = SymbolInfoInteger(sym, SYMBOL_SPREAD);
+bool IsSpreadAcceptable(string symbol) {
+    double spread = SymbolInfoInteger(symbol, SYMBOL_SPREAD);
     if (spread > MaxAllowedSpreadPoints) {
-        Print("[Block] Spread too high on ", sym, ": ", spread);
+        Print("[Block] Spread too high on ", symbol, ": ", spread);
         return false;
     }
     return true;
@@ -676,7 +682,7 @@ bool IsSpreadAcceptable(string sym) {
 // === MARKET CONDITIONS FILTER ===
 bool IsMajorEventToday() {
     string highImpactEvents[] = {"NFP", "FOMC", "CPI"};
-    for (int i = 0; i < ArraySize(RedNewsTimes); i++) {
+    for (int i = 0; i < RedNewsCount; i++) {
         for (int j = 0; j < ArraySize(highImpactEvents); j++) {
             if (StringFind(RedNewsTimes[i], highImpactEvents[j]) != -1)
                 return true;
@@ -690,7 +696,7 @@ void CheckServerOffset() {
     datetime now = TimeLocal();
     datetime broker = TimeCurrent();
     int offset = (int)((broker - now) / 3600);
-    Print("[Info] Broker vs VPS time offset: ", offset, " hours");
+    Print("[Info] Broker vs VPS time offset: ", offset, " hours (check weekends manually)");
 }
 
 // === CANDLE PATTERN FILTER ===
