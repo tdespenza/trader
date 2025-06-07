@@ -324,11 +324,11 @@ void LogEquitySnapshot() {
 
 void LoadRedNewsTimes() {
     string url = "https://nfs.faireconomy.media/ff_calendar_thisweek.xml";
-    uchar data[];
-    uchar result[];
-    string headers;
+    char data[];
+    char result[];
+    string result_headers;
     int timeout = 5000;
-    int res = WebRequest("GET", url, headers, timeout, data, result, headers);
+    int res = WebRequest("GET", url, "", "", timeout, data, 0, result, result_headers);
     if (res != 200) {
         Print("Failed to fetch news: ", res);
         return;
@@ -443,6 +443,19 @@ double GetATR(string sym, ENUM_TIMEFRAMES tf, int period) {
     return buf[0];
 }
 
+// Utility: get EMA value for specified shift
+double GetEMA(string sym, ENUM_TIMEFRAMES tf, int period, int shift=0) {
+    int h = iMA(sym, tf, period, 0, MODE_EMA, PRICE_CLOSE);
+    if(h==INVALID_HANDLE) return 0.0;
+    double buf[];
+    if(CopyBuffer(h, 0, shift, 1, buf) <= 0) {
+        IndicatorRelease(h);
+        return 0.0;
+    }
+    IndicatorRelease(h);
+    return buf[0];
+}
+
 bool IsVolatilitySufficient(string sym, ENUM_TIMEFRAMES tf = PERIOD_M15) {
     double atr = GetATR(sym, tf, 14);
     return atr >= ATRThreshold;
@@ -460,8 +473,8 @@ void StrategyVWAP(string sym) {
     double vwap = 0, tpv = 0, vol = 0;
     for (int i = 0; i < VWAPPeriod; i++) {
         double typical = (rates[i].high + rates[i].low + rates[i].close) / 3;
-        tpv += typical * rates[i].tick_volume;
-        vol += rates[i].tick_volume;
+        tpv += typical * (double)rates[i].tick_volume;
+        vol += (double)rates[i].tick_volume;
     }
     if (vol == 0) return;
     vwap = tpv / vol;
@@ -511,8 +524,8 @@ void StrategyPullback(string sym) {
     int hour = GetHour(TimeCurrent());
     if (TradesTodayPullback >= 2 || (hour < 7 || (hour > 13 && hour < 14) || hour > 16)) return;
     if (!IsSpreadAcceptable(sym)) return;
-    double emaFast = iMA(sym, PERIOD_M15, 10, 0, MODE_EMA, PRICE_CLOSE, 0);
-    double emaSlow = iMA(sym, PERIOD_M15, 21, 0, MODE_EMA, PRICE_CLOSE, 0);
+    double emaFast = GetEMA(sym, PERIOD_M15, 10);
+    double emaSlow = GetEMA(sym, PERIOD_M15, 21);
     double price = iClose(sym, PERIOD_M15, 0);
 
     if (emaFast > emaSlow && price < emaFast - 20 * _Point) {
@@ -543,9 +556,9 @@ double CalculateLotSize(string sym, double riskPct, double slPips) {
     double lots = riskUSD / (slPips * pipValue);
 
     double contractSize = SymbolInfoDouble(sym, SYMBOL_TRADE_CONTRACT_SIZE);
-    double leverage = AccountInfoInteger(ACCOUNT_LEVERAGE);
+    double leverage = (double)AccountInfoInteger(ACCOUNT_LEVERAGE);
     double marginPerLot = contractSize / leverage;
-    double freeMargin = AccountFreeMargin();
+    double freeMargin = AccountInfoDouble(ACCOUNT_FREEMARGIN);
     double maxAllowedLots = freeMargin / marginPerLot;
 
     return NormalizeDouble(MathMin(lots, maxAllowedLots), 2);
@@ -623,10 +636,11 @@ void UpdateTrailingStop(string sym, ulong ticket, double entryPrice, int type, d
 void SendTelegram(string message) {
     if (!EnableTelegram || StringLen(TelegramBotToken) == 0 || StringLen(TelegramChatID) == 0) return;
     string url = "https://api.telegram.org/bot" + TelegramBotToken + "/sendMessage?chat_id=" + TelegramChatID + "&text=" + message;
-    uchar data[];
-    string headers;
+    char data[];
+    char result[];
+    string result_headers;
     int timeout = 5000;
-    int res = WebRequest("GET", url, "", "", timeout, data, headers);
+    int res = WebRequest("GET", url, "", "", timeout, data, 0, result, result_headers);
     if (res != 200) Print("Telegram error: ", res);
 }
 
@@ -683,8 +697,8 @@ void LogDetailedTrade(string symbol, string type, double lot, double sl, double 
         FileSeek(handle, 0, SEEK_END);
         FileWrite(handle, TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES),
                   symbol, type, lot, sl, tp, entryPrice, exitPrice,
-                  AccountInfoDouble(ACCOUNT_EQUITY),
-                  SymbolInfoDouble(symbol, SYMBOL_SPREAD),
+                AccountInfoDouble(ACCOUNT_EQUITY),
+                (double)SymbolInfoInteger(symbol, SYMBOL_SPREAD),
                   GetTickCount(), result);
         FileClose(handle);
     }
@@ -703,7 +717,7 @@ void LogSlippage(string symbol, double requested, double executed) {
 
 // === SPREAD MONITORING ===
 bool IsSpreadAcceptable(string symbol) {
-    double spread = SymbolInfoInteger(symbol, SYMBOL_SPREAD);
+    double spread = (double)SymbolInfoInteger(symbol, SYMBOL_SPREAD);
     if (spread > MaxAllowedSpreadPoints) {
         Print("[Block] Spread too high on ", symbol, ": ", spread);
         return false;
@@ -732,10 +746,10 @@ void CheckServerOffset() {
 }
 
 // === CANDLE PATTERN FILTER ===
-bool IsBullishEngulfing(MqlRates r1, MqlRates r2) {
+bool IsBullishEngulfing(const MqlRates &r1, const MqlRates &r2) {
     return r2.close > r2.open && r1.close < r1.open && r2.open < r1.close && r2.close > r1.open;
 }
-bool IsBearishEngulfing(MqlRates r1, MqlRates r2) {
+bool IsBearishEngulfing(const MqlRates &r1, const MqlRates &r2) {
     return r2.close < r2.open && r1.close > r1.open && r2.open > r1.close && r2.close < r1.open;
 }
 
