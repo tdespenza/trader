@@ -439,16 +439,25 @@ for (int i = 0; i < ArraySize(symbols); i++) {
 
 
 // === VOLATILITY CHECK ===
-double GetATR(string sym, ENUM_TIMEFRAMES tf, int period) {
-    int h = iATR(sym, tf, period);
-    if (h == INVALID_HANDLE) return 0.0;
-    double buf[];
-    if (CopyBuffer(h, 0, 0, 1, buf) <= 0) {
-        IndicatorRelease(h);
+double CalcATRManual(string sym, ENUM_TIMEFRAMES tf, int period) {
+    MqlRates rates[];
+    if (CopyRates(sym, tf, 0, period + 1, rates) <= period)
         return 0.0;
+    ArraySetAsSeries(rates, true);
+    double sumTR = 0.0;
+    for (int i = 1; i <= period; i++) {
+        double high = rates[i - 1].high;
+        double low = rates[i - 1].low;
+        double prevClose = rates[i].close;
+        double tr = MathMax(high - low,
+                            MathMax(MathAbs(high - prevClose), MathAbs(low - prevClose)));
+        sumTR += tr;
     }
-    IndicatorRelease(h);
-    return buf[0];
+    return sumTR / period;
+}
+
+double GetATR(string sym, ENUM_TIMEFRAMES tf, int period) {
+    return CalcATRManual(sym, tf, period);
 }
 
 // Utility: get EMA value for specified shift
