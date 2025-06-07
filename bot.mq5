@@ -4,7 +4,7 @@
 //|   Built for MDTC, FTMO, MyFF & similar one-phase challenges      |
 //+------------------------------------------------------------------+
 #property copyright "OpenAI"
-#property version   "3.2"
+#property version   "3.3"
 #property strict
 #property description "Multi-strategy prop firm bot: VWAP Reversal, London Breakout, and Trend Pullback with full risk control, broker behavior detection, equity scaling, logging, exit intelligence, and full prop challenge automation."
 
@@ -14,6 +14,12 @@
 #import "kernel32.dll"
 int GetTickCount();
 #import
+
+// === ENUM & PROP FIRM MODES ===
+enum PropFirmType { FTMO, MFF, E8 };
+input PropFirmType FirmMode = FTMO;
+bool MultiPhase = true;
+int CurrentPhase = 1;
 
 // === INPUT PARAMETERS ===
 input string TradeSymbols = "NAS100,XAUUSD,US30";
@@ -90,6 +96,10 @@ input double LossStreakReducer = 0.5;
 input bool EnableAutoTradeDay = true;
 input int ForceTradeHour = 22;
 
+input int MaxTradeDurationMinutes = 120;
+input int SnapshotIntervalMinutes = 120;
+string EquityLogFile = "EquitySnapshots.csv";
+
 // === GLOBAL VARIABLES ===
 CTrade trade;
 int ConsecutiveLosses = 0;
@@ -98,6 +108,7 @@ datetime LastLossTime = 0;
 bool IsPausedAfterGain = false;
 datetime LastEquityGainTime = 0;
 bool EquityLockHit = false;
+datetime LastSnapshotTime = 0;
 string NewsCurrencyList[] = {"USD", "XAU", "NAS"};
 string RedNewsTimes[];
 bool DailyProfitHit = false;
@@ -237,7 +248,60 @@ bool IsInNYSession() {
     return (!EnableNYSessionOnly || (hour >= NYStartHour && hour <= NYEndHour));
 }
 
+// === PROP FIRM CONFIGURATION ===
+void ApplyFirmSettings() {
+    switch(FirmMode) {
+        case FTMO:
+            DailyLossLimitPct = 5.0;
+            MaxDrawdownPct = 10.0;
+            break;
+        case MFF:
+            DailyLossLimitPct = 4.0;
+            MaxDrawdownPct = 8.0;
+            break;
+        case E8:
+            DailyLossLimitPct = 5.0;
+            MaxDrawdownPct = 8.0;
+            break;
+    }
+    if (MultiPhase && CurrentPhase == 2) {
+        RiskPerTradeVWAP *= 0.75;
+        RiskPerTradeBreakout *= 0.75;
+        RiskPerTradePullback *= 0.75;
+    }
+}
+
+// === TRADE DURATION MONITOR ===
+void CheckTradeDuration() {
+    for (int i = PositionsTotal() - 1; i >= 0; i--) {
+        ulong ticket = PositionGetTicket(i);
+        if (PositionSelectByTicket(ticket)) {
+            datetime opentime = PositionGetInteger(POSITION_TIME);
+            if ((TimeCurrent() - opentime) > MaxTradeDurationMinutes * 60) {
+                Print("[Alert] Trade open too long: ", PositionGetString(POSITION_SYMBOL));
+            }
+        }
+    }
+}
+
+// === EQUITY SNAPSHOT LOGGING ===
+void LogEquitySnapshot() {
+    datetime now = TimeCurrent();
+    if ((now - LastSnapshotTime) >= SnapshotIntervalMinutes * 60) {
+        int handle = FileOpen(EquityLogFile, FILE_CSV|FILE_READ|FILE_WRITE, ',');
+        if (handle != INVALID_HANDLE) {
+            FileSeek(handle, 0, SEEK_END);
+            FileWrite(handle, TimeToString(now, TIME_DATE|TIME_MINUTES),
+                      DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2),
+                      DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2));
+            FileClose(handle);
+        }
+        LastSnapshotTime = now;
+    }
+}
+
 // === END OF HEADER ===
+ApplyFirmSettings();
 
 void LoadRedNewsTimes() {
     string url = "https://nfs.faireconomy.media/ff_calendar_thisweek.xml";
@@ -296,6 +360,8 @@ void OnTick() {
     if (EnableNewsFilter && IsNearRedNews()) return;
     if (TimeDay(TimeCurrent()) != TimeDay(LastTradeTimeVWAP)) ResetDailyCounters();
     if (TradeLock) return;
+    CheckTradeDuration();
+    LogEquitySnapshot();
     double equity = AccountInfoDouble(ACCOUNT_EQUITY);
     if (equity > MaxEquity) MaxEquity = equity;
     if (equity < MinEquity) MinEquity = equity;
