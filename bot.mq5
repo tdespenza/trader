@@ -117,11 +117,7 @@ bool EquityLockHit = false;
 string RedNewsTimes[100];
 int RedNewsLevels[100];
 int RedNewsCount = 0;
-#ifdef __MQL5_TESTER__
-bool mockNews = true;
-#else
-bool mockNews = false;
-#endif
+bool mockNews = (bool)MQLInfoInteger(MQL_TESTER);
 datetime LastSnapshotTime = 0;
 string NewsCurrencyList[] = {"USD", "XAU", "NAS"};
 bool DailyProfitHit = false;
@@ -332,7 +328,7 @@ void LogEquitySnapshot() {
 // === END OF HEADER ===
 
 void LoadRedNewsTimes() {
-#ifdef __MQL5_TESTER__
+if(MQLInfoInteger(MQL_TESTER)) {
     int handle = FileOpen("news.csv", FILE_READ|FILE_CSV);
     RedNewsCount = 0;
     if(handle == INVALID_HANDLE) {
@@ -350,7 +346,7 @@ void LoadRedNewsTimes() {
         }
     }
     FileClose(handle);
-#else
+} else {
     string url = "https://nfs.faireconomy.media/ff_calendar_thisweek.xml";
     char data[];
     char result[];
@@ -378,7 +374,7 @@ void LoadRedNewsTimes() {
         }
         pos += 10;
     }
-#endif
+}
 }
 
 string ExtractBetween(string source, string fromTag, string toTag) {
@@ -608,9 +604,7 @@ double CalculateLotSize(string sym, double riskPct, double slPips) {
 
 // === NEWS FILTER ===
 bool IsNearRedNews(int minImpact = 2) {
-#ifdef __MQL5_TESTER__
-    return false;
-#endif
+if(MQLInfoInteger(MQL_TESTER)) return false;
     datetime now = TimeCurrent();
     for (int i = 0; i < RedNewsCount; i++) {
         if (RedNewsLevels[i] >= minImpact) {
@@ -680,10 +674,10 @@ void UpdateTrailingStop(string sym, ulong ticket, double entryPrice, int type, d
 // === TELEGRAM ALERT ===
 void SendTelegram(string message) {
     if (!EnableTelegram || StringLen(TelegramBotToken) == 0 || StringLen(TelegramChatID) == 0) return;
-#ifdef __MQL5_TESTER__
+if(MQLInfoInteger(MQL_TESTER)) {
     Print("[TG] ", message);
     return;
-#else
+} else {
     string url = "https://api.telegram.org/bot" + TelegramBotToken + "/sendMessage?chat_id=" + TelegramChatID + "&text=" + message;
     char data[];
     char result[];
@@ -691,7 +685,7 @@ void SendTelegram(string message) {
     int timeout = 5000;
     int res = WebRequest("GET", url, "", "", timeout, data, 0, result, result_headers);
     if (res != 200) Print("Telegram error: ", res);
-#endif
+}
 }
 
 bool IsEquitySlopeFailing() {
