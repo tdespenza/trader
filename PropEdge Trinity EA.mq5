@@ -14,6 +14,25 @@ input double LotSizeMin = 0.01;
 string symbols[] = {"EURUSD","USDJPY","GBPUSD","US500","US30","XAUUSD","BTCUSD"};
 double leverageFactors[] = {1.0,1.0,1.0,0.2,0.2,0.1,0.01};
 
+// Return index of symbol in the symbols array or -1 if not found
+int FindSymbolIndex(string symbol)
+{
+   for(int i=0;i<ArraySize(symbols);i++)
+   {
+      if(symbols[i]==symbol)
+         return(i);
+   }
+   return(-1);
+}
+
+// Extract day of month from a datetime value
+int DayOfDate(datetime t)
+{
+   MqlDateTime stm;
+   TimeToStruct(t,stm);
+   return(stm.day);
+}
+
 bool targetAchieved = false;
 
 int OnInit()
@@ -36,8 +55,8 @@ void OnTick()
       return;
    }
 
-   string sym = Symbol();
-   int idx = ArrayBsearch(symbols,sym);
+string sym = Symbol();
+int idx = FindSymbolIndex(sym);
    if(idx<0)
       return;
 
@@ -131,7 +150,7 @@ bool IsTradingHalted()
 {
    static datetime lastDay=0;
    datetime now=TimeCurrent();
-   if(TimeDay(now)!=TimeDay(lastDay))
+   if(DayOfDate(now)!=DayOfDate(lastDay))
    {
       lastDay=now;
       double balance=AccountInfoDouble(ACCOUNT_BALANCE);
