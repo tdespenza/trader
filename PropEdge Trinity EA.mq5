@@ -12,7 +12,8 @@ input double DailyLossLimitPercent = 3.0;
 input double LotSizeMin = 0.01;
 
 string symbols[] = {"EURUSD","USDJPY","GBPUSD","US500","US30","XAUUSD","BTCUSD"};
-double leverageFactors[] = {1.0,1.0,1.0,0.2,0.2,0.1,0.01};
+// Margin requirement factors (1/leverage) for each symbol above
+double leverageFactors[] = {1.0,1.0,1.0,0.2,0.2,0.1,0.05};
 
 // Return index of symbol in the symbols array or -1 if not found
 int FindSymbolIndex(string symbol)
@@ -139,11 +140,51 @@ void TradeCryptoTrend(string sym,int idx)
 double CalculateRiskAdjustedLot(string symbol,int idx,double slPips)
 {
    double balance = AccountInfoDouble(ACCOUNT_BALANCE);
-   double risk = balance*RiskPercent/100.0;
-   double tickVal = SymbolInfoDouble(symbol,SYMBOL_TRADE_TICK_VALUE);
-   double riskPerLot = slPips*tickVal*leverageFactors[idx];
-   double lots = risk/riskPerLot;
-   return(MathMax(LotSizeMin,NormalizeDouble(lots,2)));
+   double risk = balance * RiskPercent / 100.0;
+
+   // Obtain pricing details
+   double tickVal   = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_VALUE);
+   double tickSize  = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_SIZE);
+   double contract  = SymbolInfoDouble(symbol, SYMBOL_TRADE_CONTRACT_SIZE);
+   double point     = SymbolInfoDouble(symbol, SYMBOL_POINT);
+   int    digits    = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+
+   // Determine pip size (0.0001 for 5 digits, 0.01 for 3 digits, etc.)
+   double pipSize = (digits==3 || digits==5) ? point*10.0 : point;
+
+   // Pip value for one lot using tick value and contract size
+   double pipValue = 0.0;
+   if(tickVal>0.0 && tickSize>0.0)
+      pipValue = (tickVal/tickSize) * pipSize;
+   else
+      pipValue = contract * pipSize;
+
+   // Margin requirement factor for the symbol (1/leverage)
+   double marginFactor = (idx>=0 && idx<ArraySize(leverageFactors)) ?
+                         leverageFactors[idx] : 1.0;
+
+   double riskPerLot = slPips * pipValue * marginFactor;
+   if(riskPerLot <= 0.0)
+      return(LotSizeMin);
+
+   double lots = risk / riskPerLot;
+
+   double minLot = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN);
+   double maxLot = MathMin(100.0, SymbolInfoDouble(symbol, SYMBOL_VOLUME_MAX));
+   double step   = SymbolInfoDouble(symbol, SYMBOL_VOLUME_STEP);
+
+   if(lots < minLot)
+      lots = minLot;
+   if(lots > maxLot)
+      lots = maxLot;
+
+   lots = MathFloor(lots/step) * step;
+   lots = NormalizeDouble(lots,2);
+
+   if(lots < minLot)
+      lots = minLot;
+
+   return(lots);
 }
 
 bool IsTradingHalted()
