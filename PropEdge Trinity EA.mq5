@@ -162,7 +162,7 @@ void TradeCryptoTrend(string sym,int idx)
 //+------------------------------------------------------------------+
 double CalculateRiskAdjustedLot(string symbol,int idx,double slPips)
 {
-   double balance       = AccountBalance();
+   double balance       = AccountInfoDouble(ACCOUNT_BALANCE);
    double riskPerTrade  = balance * RiskPercent / 100.0;
 
    // Scale risk for volatile instruments
