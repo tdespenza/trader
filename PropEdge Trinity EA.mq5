@@ -15,6 +15,9 @@ string symbols[] = {"EURUSD","USDJPY","GBPUSD","US500","US30","XAUUSD","BTCUSD"}
 // Margin requirement factors (1/leverage) for each symbol above
 double leverageFactors[] = {1.0,1.0,1.0,0.2,0.2,0.1,0.05};
 
+// Track if partial profits were taken for each symbol
+bool  partialTaken[];
+
 // Return index of symbol in the symbols array or -1 if not found
 int FindSymbolIndex(string symbol)
 {
@@ -38,6 +41,9 @@ bool targetAchieved = false;
 
 int OnInit()
 {
+   ArrayResize(partialTaken,ArraySize(symbols));
+   for(int i=0;i<ArraySize(partialTaken);i++)
+      partialTaken[i]=false;
    return(INIT_SUCCEEDED);
 }
 
@@ -61,23 +67,25 @@ int idx = FindSymbolIndex(sym);
    if(idx<0)
       return;
 
-   if(HasOpenTrade(sym))
-      return;
-
    datetime now = TimeCurrent();
    MqlDateTime tm; TimeToStruct(now,tm);
    int mins = tm.hour*60+tm.min;
 
-   if((sym=="EURUSD" || sym=="USDJPY") && mins>=480 && mins<=720)
-      TradeSessionBreakout(sym,idx);
-   if(sym=="GBPUSD" && mins==480)
-      TradeLondonBreakout(sym,idx);
-   if((sym=="US500" || sym=="US30") && mins>=570 && mins<=630)
-      TradeNYMomentum(sym,idx);
-   if(sym=="XAUUSD" && mins>=570 && mins<=690)
-      TradeGoldRange(sym,idx);
-   if(sym=="BTCUSD" && tm.hour%6==0)
-      TradeCryptoTrend(sym,idx);
+   if(!HasOpenTrade(sym))
+   {
+      if((sym=="EURUSD" || sym=="USDJPY") && mins>=480 && mins<=720)
+         TradeSessionBreakout(sym,idx);
+      if(sym=="GBPUSD" && mins==480)
+         TradeLondonBreakout(sym,idx);
+      if((sym=="US500" || sym=="US30") && mins>=570 && mins<=630)
+         TradeNYMomentum(sym,idx);
+      if(sym=="XAUUSD" && mins>=570 && mins<=690)
+         TradeGoldRange(sym,idx);
+      if(sym=="BTCUSD" && tm.hour%6==0)
+         TradeCryptoTrend(sym,idx);
+   }
+
+   ManageTradeExit(sym);
 }
 
 //+------------------------------------------------------------------+
@@ -121,22 +129,32 @@ void TradeGoldRange(string sym,int idx)
    double upper,mid,lower;
    GetBollinger(sym,PERIOD_M15,20,2.0,upper,mid,lower);
    double p = iClose(sym,PERIOD_M15,0);
-   double lot = CalculateRiskAdjustedLot(sym,idx,50);
+   double atr = iATR(sym,PERIOD_H1,14,0);
+   double sl = 2.0*atr;
+   double tp = 4.0*atr;
+   double lot = CalculateRiskAdjustedLot(sym,idx,sl/SymbolInfoDouble(sym,SYMBOL_POINT));
+   double ask = SymbolInfoDouble(sym,SYMBOL_ASK);
+   double bid = SymbolInfoDouble(sym,SYMBOL_BID);
    if(p<=lower)
-      trade.Buy(lot,sym);
+      trade.Buy(lot,sym,ask,ask-sl,ask+tp);
    else if(p>=upper)
-      trade.Sell(lot,sym);
+      trade.Sell(lot,sym,bid,bid+sl,bid-tp);
 }
 
 void TradeCryptoTrend(string sym,int idx)
 {
    double ma = GetMA(sym,PERIOD_H1,50);
    double p = iClose(sym,PERIOD_H1,0);
-   double lot = CalculateRiskAdjustedLot(sym,idx,300);
+   double atr = iATR(sym,PERIOD_H1,14,0);
+   double sl  = 2.0*atr;
+   double tp  = 4.0*atr;
+   double lot = CalculateRiskAdjustedLot(sym,idx,sl/SymbolInfoDouble(sym,SYMBOL_POINT));
+   double ask = SymbolInfoDouble(sym,SYMBOL_ASK);
+   double bid = SymbolInfoDouble(sym,SYMBOL_BID);
    if(p>ma)
-      trade.Buy(lot,sym);
+      trade.Buy(lot,sym,ask,ask-sl,ask+tp);
    else if(p<ma)
-      trade.Sell(lot,sym);
+      trade.Sell(lot,sym,bid,bid+sl,bid-tp);
 }
 
 //+------------------------------------------------------------------+
@@ -262,6 +280,121 @@ void GetBollinger(string sym,ENUM_TIMEFRAMES tf,int period,double deviation,doub
    upper=bufUpper[0];
    mid=bufMid[0];
    lower=bufLower[0];
-   IndicatorRelease(handle);
+  IndicatorRelease(handle);
+}
+
+//+------------------------------------------------------------------+
+void ManageTradeExit(string sym)
+{
+   int idx=FindSymbolIndex(sym);
+   if(idx<0)
+      return;
+
+   if(!PositionSelect(sym))
+   {
+      partialTaken[idx]=false;
+      return;
+   }
+
+   ulong   ticket    = (ulong)PositionGetInteger(POSITION_TICKET);
+   long    type      = PositionGetInteger(POSITION_TYPE);
+   double  volume    = PositionGetDouble(POSITION_VOLUME);
+   double  openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+   double  sl        = PositionGetDouble(POSITION_SL);
+   double  tp        = PositionGetDouble(POSITION_TP);
+   datetime openTime = (datetime)PositionGetInteger(POSITION_TIME);
+
+   ENUM_TIMEFRAMES tf = PERIOD_M15;
+   double atr = iATR(sym,tf,14,0);
+   if(atr<=0)
+      atr=SymbolInfoDouble(sym,SYMBOL_POINT)*10.0;
+
+   // Chandelier-style trailing stop
+   double highest=openPrice;
+   double lowest=openPrice;
+   for(int i=1;i<=14;i++)
+   {
+      double h=iHigh(sym,tf,i);
+      double l=iLow(sym,tf,i);
+      if(h>highest) highest=h;
+      if(l<lowest)  lowest=l;
+   }
+   double newSL=sl;
+   if(type==POSITION_TYPE_BUY)
+   {
+      double trail=highest-2.0*atr;
+      if(sl==0 || trail>sl)
+         newSL=trail;
+   }
+   else
+   {
+      double trail=lowest+2.0*atr;
+      if(sl==0 || trail<sl)
+         newSL=trail;
+   }
+   if(newSL!=sl)
+   {
+      trade.PositionModify(sym,newSL,tp);
+      Print(sym+" trailing stop updated at "+TimeToString(TimeCurrent()));
+   }
+
+   double price=(type==POSITION_TYPE_BUY)?SymbolInfoDouble(sym,SYMBOL_BID):SymbolInfoDouble(sym,SYMBOL_ASK);
+
+   // Partial profit taking at 2*ATR
+   if(!partialTaken[idx])
+   {
+      double target=2.0*atr;
+      if((type==POSITION_TYPE_BUY && price-openPrice>=target) ||
+         (type==POSITION_TYPE_SELL && openPrice-price>=target))
+      {
+         if(trade.PositionClosePartial(ticket,volume/2.0))
+         {
+            partialTaken[idx]=true;
+            double eq=AccountInfoDouble(ACCOUNT_EQUITY);
+            Print(sym+" partial profit taken at "+TimeToString(TimeCurrent())+" Equity:"+DoubleToString(eq,2));
+         }
+      }
+   }
+
+   double sar  = iSAR(sym,tf,0.02,0.2,0);
+   double fast = GetMA(sym,tf,5);
+   double slow = GetMA(sym,tf,20);
+
+   bool reverse=false;
+   if(type==POSITION_TYPE_BUY)
+   {
+      if(price<sar || fast<slow)
+         reverse=true;
+   }
+   else
+   {
+      if(price>sar || fast>slow)
+         reverse=true;
+   }
+
+   if(reverse)
+   {
+      if(trade.PositionClose(sym))
+      {
+         partialTaken[idx]=false;
+         double eq=AccountInfoDouble(ACCOUNT_EQUITY);
+         Print(sym+" Signal reversed - exit at "+TimeToString(TimeCurrent())+" Equity:"+DoubleToString(eq,2));
+      }
+      return;
+   }
+
+   int holdSecs=12*PeriodSeconds(tf);
+   if(sym=="XAUUSD" || sym=="BTCUSD")
+      holdSecs=3*24*3600; // approx 3 days
+
+   if(TimeCurrent()-openTime>=holdSecs)
+   {
+      if(trade.PositionClose(sym))
+      {
+         partialTaken[idx]=false;
+         double eq=AccountInfoDouble(ACCOUNT_EQUITY);
+         Print(sym+" Timeout reached - exit at "+TimeToString(TimeCurrent())+" Equity:"+DoubleToString(eq,2));
+      }
+   }
 }
 //+------------------------------------------------------------------+
