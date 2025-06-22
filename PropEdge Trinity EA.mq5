@@ -129,7 +129,7 @@ void TradeGoldRange(string sym,int idx)
    double upper,mid,lower;
    GetBollinger(sym,PERIOD_M15,20,2.0,upper,mid,lower);
    double p = iClose(sym,PERIOD_M15,0);
-   double atr = iATR(sym,PERIOD_H1,14,0);
+   double atr = GetATR(sym,PERIOD_H1,14,0);
    double sl = 2.0*atr;
    double tp = 4.0*atr;
    double lot = CalculateRiskAdjustedLot(sym,idx,sl/SymbolInfoDouble(sym,SYMBOL_POINT));
@@ -145,7 +145,7 @@ void TradeCryptoTrend(string sym,int idx)
 {
    double ma = GetMA(sym,PERIOD_H1,50);
    double p = iClose(sym,PERIOD_H1,0);
-   double atr = iATR(sym,PERIOD_H1,14,0);
+   double atr = GetATR(sym,PERIOD_H1,14,0);
    double sl  = 2.0*atr;
    double tp  = 4.0*atr;
    double lot = CalculateRiskAdjustedLot(sym,idx,sl/SymbolInfoDouble(sym,SYMBOL_POINT));
@@ -283,6 +283,38 @@ void GetBollinger(string sym,ENUM_TIMEFRAMES tf,int period,double deviation,doub
   IndicatorRelease(handle);
 }
 
+double GetATR(string sym,ENUM_TIMEFRAMES tf,int period,int shift)
+{
+   int handle=iATR(sym,tf,period);
+   if(handle==INVALID_HANDLE)
+      return(0);
+   double buf[];
+   if(CopyBuffer(handle,0,shift,1,buf)<1)
+   {
+      IndicatorRelease(handle);
+      return(0);
+   }
+   double val=buf[0];
+   IndicatorRelease(handle);
+   return(val);
+}
+
+double GetSAR(string sym,ENUM_TIMEFRAMES tf,double step,double maximum,int shift)
+{
+   int handle=iSAR(sym,tf,step,maximum);
+   if(handle==INVALID_HANDLE)
+      return(0);
+   double buf[];
+   if(CopyBuffer(handle,0,shift,1,buf)<1)
+   {
+      IndicatorRelease(handle);
+      return(0);
+   }
+   double val=buf[0];
+   IndicatorRelease(handle);
+   return(val);
+}
+
 //+------------------------------------------------------------------+
 void ManageTradeExit(string sym)
 {
@@ -305,7 +337,7 @@ void ManageTradeExit(string sym)
    datetime openTime = (datetime)PositionGetInteger(POSITION_TIME);
 
    ENUM_TIMEFRAMES tf = PERIOD_M15;
-   double atr = iATR(sym,tf,14,0);
+   double atr = GetATR(sym,tf,14,0);
    if(atr<=0)
       atr=SymbolInfoDouble(sym,SYMBOL_POINT)*10.0;
 
@@ -356,7 +388,7 @@ void ManageTradeExit(string sym)
       }
    }
 
-   double sar  = iSAR(sym,tf,0.02,0.2,0);
+   double sar  = GetSAR(sym,tf,0.02,0.2,0);
    double fast = GetMA(sym,tf,5);
    double slow = GetMA(sym,tf,20);
 
