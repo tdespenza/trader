@@ -61,6 +61,9 @@ int idx = FindSymbolIndex(sym);
    if(idx<0)
       return;
 
+   if(HasOpenTrade(sym))
+      return;
+
    datetime now = TimeCurrent();
    MqlDateTime tm; TimeToStruct(now,tm);
    int mins = tm.hour*60+tm.min;
@@ -201,6 +204,21 @@ bool IsTradingHalted()
          Print("\xF6D1 Daily drawdown exceeded. Trading halted for today.");
          return(true);
       }
+   }
+   return(false);
+}
+
+bool HasOpenTrade(string sym)
+{
+   if(PositionSelect(sym))
+      return(true);
+   for(int i=0;i<OrdersTotal();i++)
+   {
+      ulong ticket=OrderGetTicket(i);
+      if(ticket==0)
+         continue;
+      if(OrderGetString(ORDER_SYMBOL)==sym)
+         return(true);
    }
    return(false);
 }
