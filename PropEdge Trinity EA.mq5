@@ -16,8 +16,6 @@ input int    MinHoldTimeSecs = 60;     // minimum seconds to hold a trade before
 string symbols[] = {"EURUSD","USDJPY","GBPUSD","US500","US30","XAUUSD","BTCUSD"};
 // Margin requirement factors (1/leverage) for each symbol above
 double leverageFactors[] = {1.0,1.0,1.0,0.2,0.2,0.1,0.05};
-// Risk multipliers for volatility adjustment (parallel to symbols[])
-double riskMultipliers[] = {1.0,1.0,1.0,0.5,0.5,0.3,0.05};
 
 // Track if partial profits were taken for each symbol
 bool  partialTaken[];
@@ -192,12 +190,6 @@ double CalculateRiskAdjustedLot(string symbol,int idx,double slPips)
    double balance       = AccountInfoDouble(ACCOUNT_BALANCE);
    double riskPerTrade  = balance * RiskPercent / 100.0;
 
-   // Scale risk for volatile instruments
-   double riskMul = 1.0;
-   if(idx>=0 && idx<ArraySize(riskMultipliers))
-      riskMul = riskMultipliers[idx];
-   riskPerTrade *= riskMul;
-
    // Obtain pricing details
    double tickVal   = SymbolInfoDouble(symbol,SYMBOL_TRADE_TICK_VALUE);
    double tickSize  = SymbolInfoDouble(symbol,SYMBOL_TRADE_TICK_SIZE);
@@ -369,6 +361,8 @@ void ManageTradeExit(string sym)
    double  tp        = PositionGetDouble(POSITION_TP);
    datetime openTime = (datetime)PositionGetInteger(POSITION_TIME);
 
+   if(TimeCurrent()-openTime < MinHoldTimeSecs)
+      return;
    ENUM_TIMEFRAMES tf = PERIOD_M15;
    double atr = GetATR(sym,tf,14,0);
    if(atr<=0)
@@ -421,14 +415,13 @@ void ManageTradeExit(string sym)
       }
    }
 
-   if(TimeCurrent()-openTime<MinHoldTimeSecs)
-      return;
-
    double sar  = GetSAR(sym,tf,0.02,0.2,0);
    double fast = GetMA(sym,tf,5);
    double slow = GetMA(sym,tf,20);
 
    double exitBuffer = SymbolInfoDouble(sym,SYMBOL_POINT)*50;
+   if(sym=="BTCUSD")
+      exitBuffer = SymbolInfoDouble(sym,SYMBOL_POINT)*500;
 
    bool reverse=false;
    if(type==POSITION_TYPE_BUY)
