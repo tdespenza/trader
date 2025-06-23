@@ -10,6 +10,8 @@ input double RiskPercent = 1.0;
 input double TargetPercent = 12.0;
 input double DailyLossLimitPercent = 3.0;
 input double LotSizeMin = 0.01;
+input double FixedBtcLot = 0.01;      // fixed lot size specifically for BTCUSD
+input int    MinHoldTimeSecs = 60;     // minimum seconds to hold a trade before exit checks
 
 string symbols[] = {"EURUSD","USDJPY","GBPUSD","US500","US30","XAUUSD","BTCUSD"};
 // Margin requirement factors (1/leverage) for each symbol above
@@ -19,6 +21,8 @@ double riskMultipliers[] = {1.0,1.0,1.0,0.5,0.5,0.3,0.05};
 
 // Track if partial profits were taken for each symbol
 bool  partialTaken[];
+// Last trade time for cooldown tracking per symbol
+datetime lastTradeTime[];
 
 // Return index of symbol in the symbols array or -1 if not found
 int FindSymbolIndex(string symbol)
@@ -46,6 +50,9 @@ int OnInit()
    ArrayResize(partialTaken,ArraySize(symbols));
    for(int i=0;i<ArraySize(partialTaken);i++)
       partialTaken[i]=false;
+   ArrayResize(lastTradeTime,ArraySize(symbols));
+   for(int i=0;i<ArraySize(lastTradeTime);i++)
+      lastTradeTime[i]=0;
    return(INIT_SUCCEEDED);
 }
 
@@ -84,7 +91,13 @@ int idx = FindSymbolIndex(sym);
       if(sym=="XAUUSD" && mins>=570 && mins<=690)
          TradeGoldRange(sym,idx);
       if(sym=="BTCUSD" && tm.hour%6==0)
-         TradeCryptoTrend(sym,idx);
+      {
+         if(TimeCurrent() - lastTradeTime[idx] >= 3600)
+         {
+            TradeCryptoTrend(sym,idx);
+            lastTradeTime[idx] = TimeCurrent();
+         }
+      }
    }
 
    ManageTradeExit(sym);
@@ -150,12 +163,26 @@ void TradeCryptoTrend(string sym,int idx)
    double atr = GetATR(sym,PERIOD_H1,14,0);
    double sl  = 2.0*atr;
    double tp  = 4.0*atr;
-   double lot = CalculateRiskAdjustedLot(sym,idx,sl/SymbolInfoDouble(sym,SYMBOL_POINT));
+   double lot;
+   if(sym=="BTCUSD")
+   {
+      lot = FixedBtcLot;
+      double minLot = SymbolInfoDouble(sym,SYMBOL_VOLUME_MIN);
+      double maxLot = SymbolInfoDouble(sym,SYMBOL_VOLUME_MAX);
+      double step   = SymbolInfoDouble(sym,SYMBOL_VOLUME_STEP);
+      if(lot<minLot) lot=minLot;
+      if(lot>maxLot) lot=maxLot;
+      lot = MathFloor(lot/step)*step;
+      lot = NormalizeDouble(lot,2);
+   }
+   else
+      lot = CalculateRiskAdjustedLot(sym,idx,sl/SymbolInfoDouble(sym,SYMBOL_POINT));
    double ask = SymbolInfoDouble(sym,SYMBOL_ASK);
    double bid = SymbolInfoDouble(sym,SYMBOL_BID);
-   if(p>ma)
+   double buffer = SymbolInfoDouble(sym,SYMBOL_POINT)*500;
+   if(p>ma+buffer)
       trade.Buy(lot,sym,ask,ask-sl,ask+tp);
-   else if(p<ma)
+   else if(p<ma-buffer)
       trade.Sell(lot,sym,bid,bid+sl,bid-tp);
 }
 
@@ -394,19 +421,24 @@ void ManageTradeExit(string sym)
       }
    }
 
+   if(TimeCurrent()-openTime<MinHoldTimeSecs)
+      return;
+
    double sar  = GetSAR(sym,tf,0.02,0.2,0);
    double fast = GetMA(sym,tf,5);
    double slow = GetMA(sym,tf,20);
 
+   double exitBuffer = SymbolInfoDouble(sym,SYMBOL_POINT)*50;
+
    bool reverse=false;
    if(type==POSITION_TYPE_BUY)
    {
-      if(price<sar || fast<slow)
+      if(price<sar-exitBuffer || fast<slow)
          reverse=true;
    }
    else
    {
-      if(price>sar || fast>slow)
+      if(price>sar+exitBuffer || fast>slow)
          reverse=true;
    }
 
