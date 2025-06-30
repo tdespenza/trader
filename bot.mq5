@@ -64,7 +64,8 @@ void OnTick()
 
 bool IsWithinTradingSession()
   {
-   int hour = TimeHour(TimeCurrent());
+   datetime now = TimeCurrent();
+   int hour = TimeHour(now);
    return(hour >= TradeSessionStart && hour < TradeSessionEnd);
   }
 
@@ -84,14 +85,45 @@ bool CheckSellConditions()
 
 bool TrendDirectionCheck(ENUM_TIMEFRAMES timeframe, int mode)
   {
-   double ema = iMA(NULL, timeframe, EMA_Period, 0, MODE_EMA, PRICE_CLOSE, 0);
-   double price = iClose(NULL, timeframe, 0);
+   int handle = iMA(_Symbol, timeframe, EMA_Period, 0, mode, PRICE_CLOSE);
+   if(handle == INVALID_HANDLE)
+     {
+      Print("Failed to create iMA handle");
+      return(false);
+     }
+
+   double buffer[];
+   if(CopyBuffer(handle, 0, 0, 1, buffer) < 1)
+     {
+      Print("CopyBuffer for iMA failed");
+      IndicatorRelease(handle);
+      return(false);
+     }
+   IndicatorRelease(handle);
+
+   double ema = buffer[0];
+   double price = iClose(_Symbol, timeframe, 0);
    return(price > ema);
   }
 
 void OpenTrade(ENUM_ORDER_TYPE type)
   {
-   double atr = iATR(NULL, PERIOD_H4, ATR_Period, 0);
+   int atr_handle = iATR(_Symbol, PERIOD_H4, ATR_Period);
+   if(atr_handle == INVALID_HANDLE)
+     {
+      Print("Failed to create iATR handle");
+      return;
+     }
+
+   double atr_buffer[];
+   if(CopyBuffer(atr_handle, 0, 0, 1, atr_buffer) < 1)
+     {
+      Print("CopyBuffer for iATR failed");
+      IndicatorRelease(atr_handle);
+      return;
+     }
+   IndicatorRelease(atr_handle);
+   double atr = atr_buffer[0];
    double sl = atr * ATR_Multiplier_SL;
    double tp = atr * ATR_Multiplier_TP;
    double price = SymbolInfoDouble(_Symbol, (type == ORDER_TYPE_BUY) ? SYMBOL_ASK : SYMBOL_BID);
