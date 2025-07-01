@@ -64,8 +64,9 @@ void OnTick()
 
 bool IsWithinTradingSession()
   {
-   datetime now = TimeCurrent();
-   int hour = TimeHour(now);
+   MqlDateTime tm;
+   TimeToStruct(TimeCurrent(),tm);
+   int hour = tm.hour;
    return(hour >= TradeSessionStart && hour < TradeSessionEnd);
   }
 
@@ -83,7 +84,7 @@ bool CheckSellConditions()
           !TrendDirectionCheck(PERIOD_H4, MODE_EMA));
   }
 
-bool TrendDirectionCheck(ENUM_TIMEFRAMES timeframe, int mode)
+bool TrendDirectionCheck(ENUM_TIMEFRAMES timeframe, ENUM_MA_METHOD mode)
   {
    int handle = iMA(_Symbol, timeframe, EMA_Period, 0, mode, PRICE_CLOSE);
    if(handle == INVALID_HANDLE)
