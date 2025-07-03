@@ -26,7 +26,28 @@ int emaHandleD1, emaHandleH4, atrHandle, adxHandle;
 datetime lastBarTime = 0;
 double   DailyPnL    = 0.0;
 int      TradesToday = 0;
-int      lastResetDate;
+int      lastResetDate; // stores the last day statistics were reset
+
+//+------------------------------------------------------------------+
+//| Utility: return the day of month from a datetime value            |
+//+------------------------------------------------------------------+
+int GetDay(datetime time)
+  {
+   MqlDateTime tm;
+   TimeToStruct(time,tm);
+   return(tm.day);
+  }
+
+//+------------------------------------------------------------------+
+//| Utility: select a position by its index                           |
+//+------------------------------------------------------------------+
+bool SelectPositionByIndex(int index)
+  {
+   ulong ticket=PositionGetTicket(index);
+   if(ticket==0)
+      return(false);
+   return(PositionSelectByTicket(ticket));
+  }
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -45,7 +66,7 @@ int OnInit()
       return(INIT_FAILED);
      }
 
-   lastResetDate = TimeDay(TimeCurrent());
+   lastResetDate = GetDay(TimeCurrent());
    return(INIT_SUCCEEDED);
   }
 
@@ -129,7 +150,7 @@ bool HasOpenPosition()
   {
    for(int i=0;i<PositionsTotal();i++)
      {
-      if(PositionSelectByIndex(i) && PositionGetInteger(POSITION_MAGIC)==MagicNumber)
+      if(SelectPositionByIndex(i) && PositionGetInteger(POSITION_MAGIC)==MagicNumber)
          return(true);
      }
    return(false);
@@ -154,7 +175,7 @@ void UpdateDailyPnL()
    double profit=0;
    for(int i=0;i<PositionsTotal();i++)
      {
-      if(PositionSelectByIndex(i) && PositionGetInteger(POSITION_MAGIC)==MagicNumber)
+      if(SelectPositionByIndex(i) && PositionGetInteger(POSITION_MAGIC)==MagicNumber)
          profit += PositionGetDouble(POSITION_PROFIT);
      }
    DailyPnL = profit;
@@ -165,11 +186,11 @@ void UpdateDailyPnL()
 //+------------------------------------------------------------------+
 void ResetDailyStats()
   {
-   if(TimeDay(TimeCurrent())!=lastResetDate)
+   if(GetDay(TimeCurrent())!=lastResetDate)
      {
       TradesToday = 0;
       DailyPnL    = 0;
-      lastResetDate = TimeDay(TimeCurrent());
+      lastResetDate = GetDay(TimeCurrent());
      }
   }
 
@@ -272,7 +293,7 @@ void ManageTradeRisk()
   {
    for(int i=0;i<PositionsTotal();i++)
      {
-      if(!PositionSelectByIndex(i))
+      if(!SelectPositionByIndex(i))
          continue;
       if(PositionGetInteger(POSITION_MAGIC)!=MagicNumber)
          continue;
