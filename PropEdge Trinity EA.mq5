@@ -200,7 +200,8 @@ void ResetDailyStats()
 bool CheckSpread()
   {
    // Retrieve the current spread in points
-   double spread     = SymbolInfoInteger(_Symbol, SYMBOL_SPREAD);
+   // SYMBOL_SPREAD returns a long value, explicitly cast to double
+   double spread     = (double)SymbolInfoInteger(_Symbol, SYMBOL_SPREAD);
 
    // Some brokers provide the minimal spread via MarketInfo in MQL4, but
    // in MQL5 this function is unavailable.  Use the current spread value
