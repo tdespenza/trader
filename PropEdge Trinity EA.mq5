@@ -23,7 +23,8 @@ input double   PartialCloseVolume2   = 0.025;   // second partial close volume
 int emaHandleD1, emaHandleH4, atrHandle, adxHandle;
 
 //--- state variables
-datetime lastBarTime = 0;
+datetime lastBarTime = 0;   // last H1 bar time
+datetime lastBarTimeM5 = 0; // last M5 bar time
 double   DailyPnL    = 0.0;
 int      TradesToday = 0;
 int      lastResetDate; // stores the last day statistics were reset
@@ -97,19 +98,20 @@ void OnTick()
    if(!CheckSpread())
       return;
 
-   if(!NewBar())
+   if(!NewBarM5())
       return;
    if(HasOpenPosition())
       return;
 
-   if(IsStrongTrend() && CheckBuyConditions())
+   int signal = GetCandleSignal();
+   if(signal==1 && IsStrongTrend())
      {
       double price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
       double sl    = price - RValue*_Point;
       if(!SendOrder(price, sl, 0, ORDER_TYPE_BUY))
          Print("Buy order failed");
      }
-   else if(IsStrongTrend() && CheckSellConditions())
+   else if(signal==-1 && IsStrongTrend())
      {
       double price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
       double sl    = price + RValue*_Point;
@@ -138,6 +140,20 @@ bool NewBar()
    if(lastBarTime!=current)
      {
       lastBarTime=current;
+      return(true);
+     }
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+//| Detect new M5 bar                                                |
+//+------------------------------------------------------------------+
+bool NewBarM5()
+  {
+   datetime current = iTime(_Symbol, PERIOD_M5, 0);
+   if(lastBarTimeM5!=current)
+     {
+      lastBarTimeM5=current;
       return(true);
      }
    return(false);
@@ -245,6 +261,52 @@ bool TrendDirectionCheck(ENUM_TIMEFRAMES tf, ENUM_MA_METHOD mode)
    double ema = buf[0];
    double price = iClose(_Symbol, tf, 0);
    return(price>ema);
+  }
+
+//+------------------------------------------------------------------+
+//| Candlestick pattern detection on M5                              |
+//+------------------------------------------------------------------+
+bool IsBullishEngulfing()
+  {
+   double o1=iOpen(_Symbol,PERIOD_M5,2), c1=iClose(_Symbol,PERIOD_M5,2);
+   double o2=iOpen(_Symbol,PERIOD_M5,1), c2=iClose(_Symbol,PERIOD_M5,1);
+   return(c1<o1 && c2>o2 && o2<c1 && c2>o1);
+  }
+
+bool IsBearishEngulfing()
+  {
+   double o1=iOpen(_Symbol,PERIOD_M5,2), c1=iClose(_Symbol,PERIOD_M5,2);
+   double o2=iOpen(_Symbol,PERIOD_M5,1), c2=iClose(_Symbol,PERIOD_M5,1);
+   return(c1>o1 && c2<o2 && o2>c1 && c2<o1);
+  }
+
+bool IsHammer()
+  {
+   double o=iOpen(_Symbol,PERIOD_M5,1), c=iClose(_Symbol,PERIOD_M5,1);
+   double h=iHigh(_Symbol,PERIOD_M5,1), l=iLow(_Symbol,PERIOD_M5,1);
+   double body=MathAbs(c-o);
+   double lower=MathMin(o,c)-l;
+   double upper=h-MathMax(o,c);
+   return(lower>=2*body && upper<=0.3*body);
+  }
+
+bool IsShootingStar()
+  {
+   double o=iOpen(_Symbol,PERIOD_M5,1), c=iClose(_Symbol,PERIOD_M5,1);
+   double h=iHigh(_Symbol,PERIOD_M5,1), l=iLow(_Symbol,PERIOD_M5,1);
+   double body=MathAbs(c-o);
+   double lower=MathMin(o,c)-l;
+   double upper=h-MathMax(o,c);
+   return(upper>=2*body && lower<=0.3*body);
+  }
+
+int GetCandleSignal()
+  {
+   if(IsBullishEngulfing() || IsHammer())
+      return(1);
+   if(IsBearishEngulfing() || IsShootingStar())
+      return(-1);
+   return(0);
   }
 
 //+------------------------------------------------------------------+
