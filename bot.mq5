@@ -9,6 +9,7 @@ input int      EMA_Period            = 200;
 input int      ATR_Period            = 14;
 input int      ADX_Period            = 14;
 input double   ADX_Threshold         = 25.0;
+input bool     UseADXFilter         = false;   // set true to enable ADX filter
 input double   LotSize               = 0.10;
 input double   DailyStopLoss         = 500.0;
 input int      TradeSessionStart     = 7;
@@ -37,10 +38,13 @@ int OnInit()
    emaHandleD1 = iMA(_Symbol, PERIOD_D1, EMA_Period, 0, MODE_EMA, PRICE_CLOSE);
    emaHandleH4 = iMA(_Symbol, PERIOD_H4, EMA_Period, 0, MODE_EMA, PRICE_CLOSE);
    atrHandle   = iATR(_Symbol, PERIOD_H4, ATR_Period);
-   adxHandle   = iADX(_Symbol, PERIOD_H4, ADX_Period);
+   if(UseADXFilter)
+      adxHandle = iADX(_Symbol, PERIOD_H4, ADX_Period);
+   else
+      adxHandle = INVALID_HANDLE;
 
    if(emaHandleD1==INVALID_HANDLE || emaHandleH4==INVALID_HANDLE ||
-      atrHandle==INVALID_HANDLE   || adxHandle==INVALID_HANDLE)
+      atrHandle==INVALID_HANDLE   || (UseADXFilter && adxHandle==INVALID_HANDLE))
      {
       Print("Failed to create indicator handle");
       return(INIT_FAILED);
@@ -58,7 +62,8 @@ void OnDeinit(const int reason)
    IndicatorRelease(emaHandleD1);
    IndicatorRelease(emaHandleH4);
    IndicatorRelease(atrHandle);
-   IndicatorRelease(adxHandle);
+   if(UseADXFilter && adxHandle!=INVALID_HANDLE)
+      IndicatorRelease(adxHandle);
   }
 
 //+------------------------------------------------------------------+
@@ -156,6 +161,8 @@ bool HasOpenPosition()
 //+------------------------------------------------------------------+
 bool IsStrongTrend()
   {
+   if(!UseADXFilter)
+      return(true);
    double adx[];
    if(CopyBuffer(adxHandle,0,0,1,adx)<1)
       return(false);
