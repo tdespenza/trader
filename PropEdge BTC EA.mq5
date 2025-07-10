@@ -2,7 +2,7 @@
 //|                                                 PropEdge BTC EA  |
 //+------------------------------------------------------------------+
 #property strict
-#include "Timeframe Status.mq5"
+#include "Trend Status Indicator.mqh"
 
 //--- input parameters
 input int      EMA_Period            = 200;
