@@ -1,10 +1,9 @@
-#property indicator_chart_window
-#property indicator_buffers 0
-
 //+------------------------------------------------------------------+
-//|   TimeframeStatus Indicator                                      |
-//|   Shows trend status for D1 and H1 and displays ATR values       |
-//|   for H1 and H4 timeframes.                                      |
+//| TimeframeStatus Utility                                          |
+//| Provides helper functions to display the current trend status    |
+//| for D1 and H1 along with ATR values for H1 and H4.  Designed to  |
+//| be included from an Expert Advisor without causing event         |
+//| function conflicts.                                              |
 //+------------------------------------------------------------------+
 
 // Use unique names to avoid conflicts with Expert Advisor globals
@@ -18,7 +17,7 @@ int tsiAtrHandleH1 = INVALID_HANDLE;
 int tsiAtrHandleH4 = INVALID_HANDLE;
 
 //+------------------------------------------------------------------+
-int OnInit()
+bool TSI_Init()
   {
    tsiEmaHandleD1 = iMA(_Symbol, PERIOD_D1, TSI_EMA_Period, 0, MODE_EMA, PRICE_CLOSE);
    tsiEmaHandleH1 = iMA(_Symbol, PERIOD_H1, TSI_EMA_Period, 0, MODE_EMA, PRICE_CLOSE);
@@ -29,13 +28,13 @@ int OnInit()
       tsiAtrHandleH1==INVALID_HANDLE || tsiAtrHandleH4==INVALID_HANDLE)
      {
       Print("Failed to create indicator handles");
-      return(INIT_FAILED);
+      return(false);
      }
-   return(INIT_SUCCEEDED);
+   return(true);
   }
 
 //+------------------------------------------------------------------+
-void OnDeinit(const int reason)
+void TSI_Deinit()
   {
    if(tsiEmaHandleD1!=INVALID_HANDLE) IndicatorRelease(tsiEmaHandleD1);
    if(tsiEmaHandleH1!=INVALID_HANDLE) IndicatorRelease(tsiEmaHandleH1);
@@ -45,23 +44,14 @@ void OnDeinit(const int reason)
   }
 
 //+------------------------------------------------------------------+
-int OnCalculate(const int rates_total,
-                const int prev_calculated,
-                const datetime &time[],
-                const double &open[],
-                const double &high[],
-                const double &low[],
-                const double &close[],
-                const long &tick_volume[],
-                const long &volume[],
-                const int &spread[])
+void TSI_Update()
   {
    double emaD1[1], emaH1[1], atrH1[1], atrH4[1];
 
-   if(CopyBuffer(tsiEmaHandleD1,0,0,1,emaD1)<1) return(0);
-   if(CopyBuffer(tsiEmaHandleH1,0,0,1,emaH1)<1) return(0);
-   if(CopyBuffer(tsiAtrHandleH1,0,0,1,atrH1)<1) return(0);
-   if(CopyBuffer(tsiAtrHandleH4,0,0,1,atrH4)<1) return(0);
+   if(CopyBuffer(tsiEmaHandleD1,0,0,1,emaD1)<1) return;
+   if(CopyBuffer(tsiEmaHandleH1,0,0,1,emaH1)<1) return;
+   if(CopyBuffer(tsiAtrHandleH1,0,0,1,atrH1)<1) return;
+   if(CopyBuffer(tsiAtrHandleH4,0,0,1,atrH4)<1) return;
 
    double closeD1 = iClose(_Symbol, PERIOD_D1, 0);
    double closeH1 = iClose(_Symbol, PERIOD_H1, 0);
@@ -73,6 +63,6 @@ int OnCalculate(const int rates_total,
                               d1Trend,h1Trend,atrH1[0],atrH4[0]);
    Comment(text);
 
-   return(rates_total);
+   return;
   }
 //+------------------------------------------------------------------+
