@@ -37,7 +37,7 @@ int OnInit()
   {
    emaHandleD1 = iMA(_Symbol, PERIOD_D1, EMA_Period, 0, MODE_EMA, PRICE_CLOSE);
    emaHandleH1 = iMA(_Symbol, PERIOD_H1, EMA_Period, 0, MODE_EMA, PRICE_CLOSE);
-   atrHandle   = iATR(_Symbol, PERIOD_H4, ATR_Period);
+   atrHandle   = iATR(_Symbol, PERIOD_H1, ATR_Period);
    if(UseADXFilter)
       adxHandle = iADX(_Symbol, PERIOD_H4, ADX_Period);
    else
