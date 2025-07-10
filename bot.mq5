@@ -21,7 +21,7 @@ input double   PartialCloseVolume1   = 0.05;    // first partial close volume
 input double   PartialCloseVolume2   = 0.025;   // second partial close volume
 
 //--- indicator handles
-int emaHandleD1, emaHandleH4, atrHandle, adxHandle;
+int emaHandleD1, emaHandleH1, atrHandle, adxHandle;
 
 //--- state variables
 datetime lastBarTime = 0;   // last H1 bar time
@@ -36,14 +36,14 @@ int      lastResetDate;
 int OnInit()
   {
    emaHandleD1 = iMA(_Symbol, PERIOD_D1, EMA_Period, 0, MODE_EMA, PRICE_CLOSE);
-   emaHandleH4 = iMA(_Symbol, PERIOD_H4, EMA_Period, 0, MODE_EMA, PRICE_CLOSE);
+   emaHandleH1 = iMA(_Symbol, PERIOD_H1, EMA_Period, 0, MODE_EMA, PRICE_CLOSE);
    atrHandle   = iATR(_Symbol, PERIOD_H4, ATR_Period);
    if(UseADXFilter)
       adxHandle = iADX(_Symbol, PERIOD_H4, ADX_Period);
    else
       adxHandle = INVALID_HANDLE;
 
-   if(emaHandleD1==INVALID_HANDLE || emaHandleH4==INVALID_HANDLE ||
+   if(emaHandleD1==INVALID_HANDLE || emaHandleH1==INVALID_HANDLE ||
       atrHandle==INVALID_HANDLE   || (UseADXFilter && adxHandle==INVALID_HANDLE))
      {
       Print("Failed to create indicator handle");
@@ -60,7 +60,7 @@ int OnInit()
 void OnDeinit(const int reason)
   {
    IndicatorRelease(emaHandleD1);
-   IndicatorRelease(emaHandleH4);
+   IndicatorRelease(emaHandleH1);
    IndicatorRelease(atrHandle);
    if(UseADXFilter && adxHandle!=INVALID_HANDLE)
       IndicatorRelease(adxHandle);
@@ -211,7 +211,7 @@ bool CheckSpread()
 bool CheckBuyConditions()
   {
    return(TrendDirectionCheck(PERIOD_D1, MODE_EMA) &&
-          TrendDirectionCheck(PERIOD_H4, MODE_EMA));
+          TrendDirectionCheck(PERIOD_H1, MODE_EMA));
   }
 
 //+------------------------------------------------------------------+
@@ -220,7 +220,7 @@ bool CheckBuyConditions()
 bool CheckSellConditions()
   {
    return(!TrendDirectionCheck(PERIOD_D1, MODE_EMA) &&
-          !TrendDirectionCheck(PERIOD_H4, MODE_EMA));
+          !TrendDirectionCheck(PERIOD_H1, MODE_EMA));
   }
 
 //+------------------------------------------------------------------+
@@ -229,7 +229,7 @@ bool CheckSellConditions()
 bool TrendDirectionCheck(ENUM_TIMEFRAMES tf, ENUM_MA_METHOD mode)
   {
    double buf[];
-   int handle = (tf==PERIOD_D1 ? emaHandleD1 : emaHandleH4);
+   int handle = (tf==PERIOD_D1 ? emaHandleD1 : emaHandleH1);
    if(CopyBuffer(handle,0,0,1,buf)<1)
      {
       Print("CopyBuffer for iMA failed");
