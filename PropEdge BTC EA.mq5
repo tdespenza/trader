@@ -2,6 +2,7 @@
 //|                                                 PropEdge BTC EA  |
 //+------------------------------------------------------------------+
 #property strict
+#include "Timeframe Status.mq5"
 
 //--- input parameters
 input int      EMA_Period            = 200;
@@ -70,6 +71,9 @@ int OnInit()
       return(INIT_FAILED);
      }
 
+   if(!TSI_Init())
+      return(INIT_FAILED);
+
    lastResetDate = GetDay(TimeCurrent());
    return(INIT_SUCCEEDED);
   }
@@ -84,6 +88,8 @@ void OnDeinit(const int reason)
    IndicatorRelease(atrHandle);
    if(UseADXFilter && adxHandle!=INVALID_HANDLE)
       IndicatorRelease(adxHandle);
+
+   TSI_Deinit();
   }
 
 //+------------------------------------------------------------------+
@@ -91,6 +97,7 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
   {
+   TSI_Update();
    ResetDailyStats();
    UpdateDailyPnL();
    ManageTradeRisk();
