@@ -7,25 +7,26 @@
 //|   for H1 and H4 timeframes.                                      |
 //+------------------------------------------------------------------+
 
-input int EMA_Period = 200;   // EMA period for trend detection
-input int ATR_Period = 14;    // ATR period
+// Use unique names to avoid conflicts with Expert Advisor globals
+input int TSI_EMA_Period = 200;   // EMA period for trend detection
+input int TSI_ATR_Period = 14;    // ATR period
 
 // Indicator handles
-int emaHandleD1 = INVALID_HANDLE;
-int emaHandleH1 = INVALID_HANDLE;
-int atrHandleH1 = INVALID_HANDLE;
-int atrHandleH4 = INVALID_HANDLE;
+int tsiEmaHandleD1 = INVALID_HANDLE;
+int tsiEmaHandleH1 = INVALID_HANDLE;
+int tsiAtrHandleH1 = INVALID_HANDLE;
+int tsiAtrHandleH4 = INVALID_HANDLE;
 
 //+------------------------------------------------------------------+
 int OnInit()
   {
-   emaHandleD1 = iMA(_Symbol, PERIOD_D1, EMA_Period, 0, MODE_EMA, PRICE_CLOSE);
-   emaHandleH1 = iMA(_Symbol, PERIOD_H1, EMA_Period, 0, MODE_EMA, PRICE_CLOSE);
-   atrHandleH1 = iATR(_Symbol, PERIOD_H1, ATR_Period);
-   atrHandleH4 = iATR(_Symbol, PERIOD_H4, ATR_Period);
+   tsiEmaHandleD1 = iMA(_Symbol, PERIOD_D1, TSI_EMA_Period, 0, MODE_EMA, PRICE_CLOSE);
+   tsiEmaHandleH1 = iMA(_Symbol, PERIOD_H1, TSI_EMA_Period, 0, MODE_EMA, PRICE_CLOSE);
+   tsiAtrHandleH1 = iATR(_Symbol, PERIOD_H1, TSI_ATR_Period);
+   tsiAtrHandleH4 = iATR(_Symbol, PERIOD_H4, TSI_ATR_Period);
 
-   if(emaHandleD1==INVALID_HANDLE || emaHandleH1==INVALID_HANDLE ||
-      atrHandleH1==INVALID_HANDLE || atrHandleH4==INVALID_HANDLE)
+   if(tsiEmaHandleD1==INVALID_HANDLE || tsiEmaHandleH1==INVALID_HANDLE ||
+      tsiAtrHandleH1==INVALID_HANDLE || tsiAtrHandleH4==INVALID_HANDLE)
      {
       Print("Failed to create indicator handles");
       return(INIT_FAILED);
@@ -36,10 +37,10 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
-   if(emaHandleD1!=INVALID_HANDLE) IndicatorRelease(emaHandleD1);
-   if(emaHandleH1!=INVALID_HANDLE) IndicatorRelease(emaHandleH1);
-   if(atrHandleH1!=INVALID_HANDLE) IndicatorRelease(atrHandleH1);
-   if(atrHandleH4!=INVALID_HANDLE) IndicatorRelease(atrHandleH4);
+   if(tsiEmaHandleD1!=INVALID_HANDLE) IndicatorRelease(tsiEmaHandleD1);
+   if(tsiEmaHandleH1!=INVALID_HANDLE) IndicatorRelease(tsiEmaHandleH1);
+   if(tsiAtrHandleH1!=INVALID_HANDLE) IndicatorRelease(tsiAtrHandleH1);
+   if(tsiAtrHandleH4!=INVALID_HANDLE) IndicatorRelease(tsiAtrHandleH4);
    Comment("");
   }
 
@@ -57,10 +58,10 @@ int OnCalculate(const int rates_total,
   {
    double emaD1[1], emaH1[1], atrH1[1], atrH4[1];
 
-   if(CopyBuffer(emaHandleD1,0,0,1,emaD1)<1) return(0);
-   if(CopyBuffer(emaHandleH1,0,0,1,emaH1)<1) return(0);
-   if(CopyBuffer(atrHandleH1,0,0,1,atrH1)<1) return(0);
-   if(CopyBuffer(atrHandleH4,0,0,1,atrH4)<1) return(0);
+   if(CopyBuffer(tsiEmaHandleD1,0,0,1,emaD1)<1) return(0);
+   if(CopyBuffer(tsiEmaHandleH1,0,0,1,emaH1)<1) return(0);
+   if(CopyBuffer(tsiAtrHandleH1,0,0,1,atrH1)<1) return(0);
+   if(CopyBuffer(tsiAtrHandleH4,0,0,1,atrH4)<1) return(0);
 
    double closeD1 = iClose(_Symbol, PERIOD_D1, 0);
    double closeH1 = iClose(_Symbol, PERIOD_H1, 0);
