@@ -118,7 +118,7 @@ void OnTick()
       return;
 
    int signal = GetCandleSignal();
-   if(signal==1 && IsStrongTrend())
+   if(signal==1 && IsStrongTrend() && CheckBuyConditions())
      {
       double price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
       double atrH4[1];
@@ -128,7 +128,7 @@ void OnTick()
       if(!SendOrder(price, sl, 0, ORDER_TYPE_BUY))
          Print("Buy order failed");
      }
-   else if(signal==-1 && IsStrongTrend())
+   else if(signal==-1 && IsStrongTrend() && CheckSellConditions())
      {
       double price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
       double atrH4[1];
@@ -251,7 +251,7 @@ bool CheckSpread()
   }
 
 //+------------------------------------------------------------------+
-//| Evaluate buy conditions                                          |
+//| Evaluate buy conditions (trend alignment)                         |
 //+------------------------------------------------------------------+
 bool CheckBuyConditions()
   {
@@ -260,7 +260,7 @@ bool CheckBuyConditions()
   }
 
 //+------------------------------------------------------------------+
-//| Evaluate sell conditions                                         |
+//| Evaluate sell conditions (trend alignment)                        |
 //+------------------------------------------------------------------+
 bool CheckSellConditions()
   {
