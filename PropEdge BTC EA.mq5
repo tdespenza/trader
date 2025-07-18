@@ -17,13 +17,12 @@ input int      TradeSessionEnd       = 20;
 input int      MagicNumber           = 123456;
 input ENUM_ORDER_TYPE_FILLING FillMode = ORDER_FILLING_IOC;   // default fill mode
 input double   StopLoss_ATR_Mult     = 1.5;     // initial SL ATR multiplier (H4)
-input double   Trail_ATR_Mult        = 1.5;     // trailing SL ATR multiplier (H4)
+input double   Trail_ATR_Mult        = 1.5;     // trailing SL ATR multiplier (H1)
 input double   Trail_Start_Mult      = 2.0;     // start trailing after price moves this many ATR
-input double   PartialCloseVolume1   = 0.05;    // first partial close volume
-input double   PartialCloseVolume2   = 0.025;   // second partial close volume
+input double   PartialCloseVolume1   = 0.05;    // volume to close at each TP
 
 //--- indicator handles
-int emaHandleD1, emaHandleH1, atrHandleH4, adxHandle;
+int emaHandleD1, emaHandleH1, atrHandleH4, atrHandleH1, adxHandle;
 
 //--- state variables
 datetime lastBarTime = 0;   // last H1 bar time
@@ -58,17 +57,18 @@ bool SelectPositionByIndex(int index)
 //+------------------------------------------------------------------+
 int OnInit()
   {
-   emaHandleD1 = iMA(_Symbol, PERIOD_D1, EMA_Period, 0, MODE_EMA, PRICE_CLOSE);
-   emaHandleH1 = iMA(_Symbol, PERIOD_H1, EMA_Period, 0, MODE_EMA, PRICE_CLOSE);
-   atrHandleH4 = iATR(_Symbol, PERIOD_H4, ATR_Period);
+  emaHandleD1 = iMA(_Symbol, PERIOD_D1, EMA_Period, 0, MODE_EMA, PRICE_CLOSE);
+  emaHandleH1 = iMA(_Symbol, PERIOD_H1, EMA_Period, 0, MODE_EMA, PRICE_CLOSE);
+  atrHandleH4 = iATR(_Symbol, PERIOD_H4, ATR_Period);
+  atrHandleH1 = iATR(_Symbol, PERIOD_H1, ATR_Period);
    if(UseADXFilter)
       adxHandle = iADX(_Symbol, PERIOD_H4, ADX_Period);
    else
       adxHandle = INVALID_HANDLE;
 
-   if(emaHandleD1==INVALID_HANDLE || emaHandleH1==INVALID_HANDLE ||
-      atrHandleH4==INVALID_HANDLE ||
-      (UseADXFilter && adxHandle==INVALID_HANDLE))
+  if(emaHandleD1==INVALID_HANDLE || emaHandleH1==INVALID_HANDLE ||
+     atrHandleH4==INVALID_HANDLE || atrHandleH1==INVALID_HANDLE ||
+     (UseADXFilter && adxHandle==INVALID_HANDLE))
      {
       Print("Failed to create indicator handle");
       return(INIT_FAILED);
@@ -88,7 +88,8 @@ void OnDeinit(const int reason)
   {
   IndicatorRelease(emaHandleD1);
   IndicatorRelease(emaHandleH1);
-   IndicatorRelease(atrHandleH4);
+  IndicatorRelease(atrHandleH4);
+  IndicatorRelease(atrHandleH1);
    if(UseADXFilter && adxHandle!=INVALID_HANDLE)
       IndicatorRelease(adxHandle);
 
@@ -390,19 +391,19 @@ void ManageTradeRisk()
       int    type       = (int)PositionGetInteger(POSITION_TYPE);
       double currentPrice = (type==POSITION_TYPE_BUY) ? SymbolInfoDouble(_Symbol,SYMBOL_BID)
                                                      : SymbolInfoDouble(_Symbol,SYMBOL_ASK);
-      double atrH4[1];
-      if(CopyBuffer(atrHandleH4,0,0,1,atrH4)<1)
+      double atrH1[1];
+      if(CopyBuffer(atrHandleH1,0,0,1,atrH1)<1)
          return;
 
-      double slDist = MathAbs(openPrice - sl);
+      double slDist = atrH1[0]*StopLoss_ATR_Mult;
 
-      // partial TP 1 at 1.5x SL distance
+      // partial TP 1 at 1.5x ATR distance on H1
       if(volume==LotSize && MathAbs(currentPrice-openPrice)>=1.5*slDist)
          ClosePartial(ticket,PartialCloseVolume1);
 
-      // partial TP 2 at 3.0x SL distance
+      // partial TP 2 at 3.0x ATR distance on H1
       if(volume==LotSize-PartialCloseVolume1 && MathAbs(currentPrice-openPrice)>=3.0*slDist)
-         ClosePartial(ticket,PartialCloseVolume2);
+         ClosePartial(ticket,PartialCloseVolume1);
 
       // breakeven at 1.2x SL distance
       if(MathAbs(currentPrice-openPrice)>=1.2*slDist)
@@ -412,11 +413,11 @@ void ManageTradeRisk()
             ModifyStopLoss(ticket,newSL);
         }
 
-      // trailing stop using H4 ATR
-      if(MathAbs(currentPrice-openPrice)>=Trail_Start_Mult*atrH4[0])
+      // trailing stop using H1 ATR
+      if(MathAbs(currentPrice-openPrice)>=Trail_Start_Mult*atrH1[0])
         {
-         double trailSL = (type==POSITION_TYPE_BUY) ? currentPrice-atrH4[0]*Trail_ATR_Mult
-                                                   : currentPrice+atrH4[0]*Trail_ATR_Mult;
+         double trailSL = (type==POSITION_TYPE_BUY) ? currentPrice-atrH1[0]*Trail_ATR_Mult
+                                                   : currentPrice+atrH1[0]*Trail_ATR_Mult;
          if((type==POSITION_TYPE_BUY && trailSL>sl) || (type==POSITION_TYPE_SELL && trailSL<sl))
             ModifyStopLoss(ticket,trailSL);
         }
