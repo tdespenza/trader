@@ -19,7 +19,7 @@ input ENUM_ORDER_TYPE_FILLING FillMode = ORDER_FILLING_IOC;   // default fill mo
 input double   StopLoss_ATR_Mult     = 1.5;     // initial SL ATR multiplier (H4)
 input double   Trail_ATR_Mult        = 1.5;     // trailing SL ATR multiplier (H1)
 input double   Trail_Start_Mult      = 2.0;     // start trailing after price moves this many ATR
-input double   PartialCloseVolume1   = 0.05;    // volume to close at each TP
+input double   PartialCloseFraction  = 0.33;    // fraction of LotSize to close at each TP
 
 //--- indicator handles
 int emaHandleD1, emaHandleH1, atrHandleH4, atrHandleH1, adxHandle;
@@ -30,6 +30,8 @@ datetime lastBarTimeM5 = 0; // last M5 bar time
 double   DailyPnL    = 0.0;
 int      TradesToday = 0;
 int      lastResetDate; // stores the last day statistics were reset
+bool     partial1Done = false; // flags for partial take profits
+bool     partial2Done = false;
 
 //+------------------------------------------------------------------+
 //| Utility: return the day of month from a datetime value            |
@@ -356,10 +358,10 @@ bool SendOrder(double price,double sl,double tp,ENUM_ORDER_TYPE type)
 
    int attempts=0;
    bool success=false;
-   while(attempts<3 && !success)
-     {
+  while(attempts<3 && !success)
+    {
       if(OrderSend(request,result) && result.retcode==TRADE_RETCODE_DONE)
-         success=true;
+        success=true;
       else
         {
          PrintFormat("OrderSend attempt %d failed: %d | %d",attempts+1,GetLastError(),result.retcode);
@@ -368,7 +370,11 @@ bool SendOrder(double price,double sl,double tp,ENUM_ORDER_TYPE type)
       attempts++;
      }
    if(success)
+     {
       TradesToday++;
+      partial1Done = false;
+      partial2Done = false;
+     }
    return(success);
   }
 
@@ -397,13 +403,21 @@ void ManageTradeRisk()
 
       double slDist = atrH1[0]*StopLoss_ATR_Mult;
 
+      double partialVol = NormalizeDouble(LotSize*PartialCloseFraction,_Digits);
+
       // partial TP 1 at 1.5x ATR distance on H1
-      if(volume==LotSize && MathAbs(currentPrice-openPrice)>=1.5*slDist)
-         ClosePartial(ticket,PartialCloseVolume1);
+      if(!partial1Done && MathAbs(currentPrice-openPrice)>=1.5*slDist && volume>=partialVol)
+        {
+         ClosePartial(ticket,partialVol);
+         partial1Done=true;
+        }
 
       // partial TP 2 at 3.0x ATR distance on H1
-      if(volume==LotSize-PartialCloseVolume1 && MathAbs(currentPrice-openPrice)>=3.0*slDist)
-         ClosePartial(ticket,PartialCloseVolume1);
+      if(partial1Done && !partial2Done && MathAbs(currentPrice-openPrice)>=3.0*slDist && volume>=partialVol)
+        {
+         ClosePartial(ticket,partialVol);
+         partial2Done=true;
+        }
 
       // breakeven at 1.2x SL distance
       if(MathAbs(currentPrice-openPrice)>=1.2*slDist)
