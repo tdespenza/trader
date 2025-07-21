@@ -37,3 +37,7 @@ Run the trading bot with:
 python prop_firm_bot.py
 ```
 The script will initialise MetaTrader 5, fetch market data and execute trades if signals are generated.
+
+## Desktop App
+
+A cross-platform desktop UI using Tauri and React is provided in the `trading-bot-app` folder. It wraps the FastAPI backend in `backend/main.py` and bundles the existing `prop_firm_bot.py` for execution. Run `./build.sh` inside `trading-bot-app` to build the installer.

@@ -1,0 +1,5 @@
+bot:
+  symbol: BTCUSD
+  rule_set: ftmo
+logging:
+  file: backend/logs/trading.log
