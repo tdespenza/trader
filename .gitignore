@@ -1,3 +1,4 @@
 /.idea/
 /.venv/
 /matchtrader-bot.iml
+__pycache__/

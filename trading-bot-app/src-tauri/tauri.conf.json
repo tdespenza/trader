@@ -1,0 +1,30 @@
+{
+  "package": {
+    "productName": "TradingBot",
+    "version": "0.1.0"
+  },
+  "build": {
+    "beforeBuildCommand": "",
+    "beforeDevCommand": "",
+    "devPath": "../frontend/dist",
+    "distDir": "../frontend/dist"
+  },
+  "tauri": {
+    "bundle": {
+      "active": true,
+      "targets": ["deb", "appimage", "msi"],
+      "identifier": "com.example.tradingbot",
+      "icon": ["icons/icon.png"],
+      "resources": [],
+      "externalBin": ["../backend/start_backend.sh"],
+      "windows": {
+        "certificateThumbprint": null,
+        "digestAlgorithm": "sha256",
+        "timestampUrl": "https://timestamp.digicert.com"
+      }
+    },
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline';"
+    }
+  }
+}
