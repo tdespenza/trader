@@ -1,0 +1,20 @@
+---
+- hosts: trader
+  become: yes
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Install dependencies
+      apt:
+        name:
+          - git
+          - python3-pip
+        state: present
+
+    - name: Clone trading bot repo
+      git:
+        repo: https://github.com/yourusername/yourbot.git
+        dest: /opt/trading-bot
+        version: main
