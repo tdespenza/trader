@@ -1,4 +1,5 @@
 import subprocess
+import sys
 from pathlib import Path
 from typing import List
 
@@ -15,6 +16,8 @@ app.add_middleware(
 )
 
 BOT_PROCESS: subprocess.Popen | None = None
+ROOT_DIR = Path(__file__).resolve().parents[1]
+BOT_PATH = ROOT_DIR / "prop_firm_bot.py"
 LOG_FILE = Path(__file__).parent / "logs" / "trading.log"
 LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
@@ -31,9 +34,10 @@ async def start_bot() -> JSONResponse:
         return JSONResponse({"running": True})
     with LOG_FILE.open("a") as f:
         BOT_PROCESS = subprocess.Popen(
-            ["python", "../../prop_firm_bot.py"],
+            [sys.executable, str(BOT_PATH)],
             stdout=f,
             stderr=subprocess.STDOUT,
+            cwd=str(ROOT_DIR),
         )
     return JSONResponse({"running": True})
 
